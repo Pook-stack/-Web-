@@ -26,6 +26,11 @@ build/
 .DS_Store
 Thumbs.db
 
+# Large files
+*.exe
+*.zip
+*.rar
+
 # Git
 .git/
 .vercel
