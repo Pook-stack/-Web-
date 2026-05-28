@@ -1,17 +1,42 @@
 import { useState, useEffect, useMemo } from 'react'
-import { clubsData } from '../data/clubs'
-import { useClubApplications } from '../hooks'
+import { Card, Button, Avatar, Skeleton } from './ui'
 
-export default function ClubDetail({ clubId, onBack }) {
+export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied }) {
   const [displayedMemberCount, setDisplayedMemberCount] = useState(8)
   const [isLoadingMembers, setIsLoadingMembers] = useState(false)
-  
-  const { isApplied, applyToClub, isLoaded } = useClubApplications()
+  const [clubDetails, setClubDetails] = useState(null)
+  const [isLoaded, setIsLoaded] = useState(false)
 
-  const clubDetails = useMemo(() => {
-    if (!isLoaded) return null
-    return clubsData.find(club => club.id === clubId) || clubsData[0]
-  }, [clubId, isLoaded])
+  useEffect(() => {
+    const loadClubDetails = async () => {
+      setIsLoaded(false)
+      
+      const { clubService } = await import('../services/supabase')
+      const result = await clubService.getClubById(clubId)
+      
+      if (result.data) {
+        setClubDetails({
+          id: result.data.id,
+          name: result.data.name,
+          game: result.data.game,
+          description: result.data.description || '暂无描述',
+          icon: result.data.icon_url || '',
+          coverImage: result.data.icon_url || '',
+          memberCount: result.data.member_count || 0,
+          rating: result.data.rating || 0,
+          priceRange: result.data.price_range || '未设置',
+          specialServices: result.data.special_services || [],
+          mission: result.data.description || '暂无宗旨',
+          contact: result.data.contact || '暂无联系方式',
+          members: [],
+        })
+      }
+      
+      setIsLoaded(true)
+    }
+    
+    loadClubDetails()
+  }, [clubId])
 
   const displayedMembers = useMemo(() => {
     if (!clubDetails?.members) return []
@@ -25,11 +50,7 @@ export default function ClubDetail({ clubId, onBack }) {
 
   const handleJoin = () => {
     if (!clubDetails || isApplied(clubDetails.id)) return
-    
-    if (confirm(`确定要申请加入「${clubDetails.name}」吗？`)) {
-      alert('已发送加入申请，等待团长审核')
-      applyToClub(clubDetails.id)
-    }
+    onQuickJoin(clubDetails.id)
   }
 
   const loadMoreMembers = () => {
@@ -62,10 +83,32 @@ export default function ClubDetail({ clubId, onBack }) {
 
   if (!isLoaded || !clubDetails) {
     return (
-      <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 to-dark-200 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin" />
-          <span className="text-white text-lg">加载中...</span>
+      <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 to-dark-200">
+        <div className="max-w-3xl mx-auto px-4 py-6">
+          <Card className="mb-4">
+            <div className="h-24 bg-gradient-to-r from-white/10 via-white/20 to-white/10 rounded-lg animate-pulse mb-4" />
+            <div className="h-6 w-3/4 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse mb-2" />
+            <div className="h-4 w-1/2 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse" />
+          </Card>
+          <Card className="mb-4">
+            <div className="h-6 w-1/3 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse mb-4" />
+            <div className="space-y-2">
+              <div className="h-4 w-full rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse" />
+              <div className="h-4 w-5/6 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse" />
+              <div className="h-4 w-4/5 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse" />
+            </div>
+          </Card>
+          <Card>
+            <div className="h-6 w-1/3 rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse mb-4" />
+            <div className="grid grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-r from-white/10 via-white/20 to-white/10 animate-pulse" />
+                  <div className="h-4 w-full rounded bg-gradient-to-r from-white/10 via-white/15 to-white/10 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
       </div>
     )
@@ -125,7 +168,7 @@ export default function ClubDetail({ clubId, onBack }) {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
-        <div className="bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl p-5">
+        <Card>
           <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
             <span>🏛️</span> 俱乐部简介
           </h2>
@@ -155,16 +198,16 @@ export default function ClubDetail({ clubId, onBack }) {
               </div>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl p-5">
+        <Card>
           <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
             <span>📝</span> 详细介绍
           </h2>
           <p className="text-gray-300 leading-relaxed">{clubDetails.description}</p>
-        </div>
+        </Card>
 
-        <div className="bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl p-5">
+        <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <span>👥</span> 成员列表
@@ -175,16 +218,15 @@ export default function ClubDetail({ clubId, onBack }) {
           <div className="grid grid-cols-4 md:grid-cols-5 gap-4">
             {displayedMembers.map((member, index) => (
               <div key={member.id} className="flex flex-col items-center gap-2" style={{ animationDelay: `${index * 0.05}s` }}>
-                <div className="relative">
-                  <img
-                    src={member.avatar}
-                    alt={member.nickname}
-                    className="w-[80px] h-[80px] rounded-full object-cover border-2 border-primary-700/30"
-                  />
-                  {member.isOnline && (
-                    <div className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-dark-300" />
-                  )}
-                </div>
+                <Avatar 
+                  name={member.nickname} 
+                  image={member.avatar}
+                  size="lg"
+                  className={`border-2 ${member.isOnline ? 'border-green-500' : 'border-primary-700/30'}`}
+                />
+                {member.isOnline && (
+                  <div className="absolute bottom-1 right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-300" />
+                )}
                 <span className="text-sm text-white font-medium truncate max-w-[80px] text-center">
                   {member.nickname.length > 8 ? member.nickname.slice(0, 8) + '...' : member.nickname}
                 </span>
@@ -197,18 +239,19 @@ export default function ClubDetail({ clubId, onBack }) {
 
           {hasMoreMembers && (
             <div className="text-center mt-6">
-              <button
+              <Button 
+                variant="secondary" 
                 onClick={loadMoreMembers}
                 disabled={isLoadingMembers}
-                className="px-6 py-2 bg-white/5 border border-white/10 rounded-full text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                size="sm"
               >
                 {isLoadingMembers ? '加载中...' : '加载更多成员'}
-              </button>
+              </Button>
             </div>
           )}
-        </div>
+        </Card>
 
-        <div className="bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl p-5">
+        <Card>
           <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
             <span>🏆</span> 俱乐部成就
           </h2>
@@ -223,9 +266,9 @@ export default function ClubDetail({ clubId, onBack }) {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl p-5">
+        <Card>
           <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
             <span>🎯</span> 特色服务
           </h2>
@@ -236,7 +279,7 @@ export default function ClubDetail({ clubId, onBack }) {
               </span>
             ))}
           </div>
-        </div>
+        </Card>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-dark-300 via-dark-300/95 to-transparent backdrop-blur-xl border-t border-white/10">
@@ -245,18 +288,17 @@ export default function ClubDetail({ clubId, onBack }) {
             <div className="text-primary-700 font-bold">{clubDetails.memberCount} 人已加入</div>
             <div className="text-sm text-gray-400">点击加入俱乐部</div>
           </div>
-          <button
+          <Button
             onClick={handleJoin}
             disabled={isApplied(clubDetails.id)}
-            className={`flex items-center gap-2 px-8 py-3 rounded-full font-bold transition-all duration-300 ${
-              isApplied(clubDetails.id)
-                ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
-                : 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:shadow-lg hover:shadow-primary-600/30 hover:scale-105 active:scale-95'
-            }`}
+            size="lg"
+            className={isApplied(clubDetails.id) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
           >
-            <span className="text-xl">{isApplied(clubDetails.id) ? '✓' : '✚'}</span>
-            <span>{isApplied(clubDetails.id) ? '已申请' : '申请加入'}</span>
-          </button>
+            <span className="flex items-center gap-2">
+              <span className="text-xl">{isApplied(clubDetails.id) ? '✓' : '✚'}</span>
+              <span>{isApplied(clubDetails.id) ? '已申请' : '申请加入'}</span>
+            </span>
+          </Button>
         </div>
       </div>
     </div>

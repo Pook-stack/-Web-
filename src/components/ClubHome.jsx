@@ -1,261 +1,305 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { clubsData, gameTags } from '../data/clubs'
-import { useClubApplications, useDebounce } from '../hooks'
+import { gameTags } from '../data/clubs'
+import { useDebounce } from '../hooks'
+import { Card, Button, Avatar, EmptyState, Skeleton, ConfirmDialog } from './ui'
 
-export default function ClubHome({ onBack, onSelectClub }) {
+export default function ClubHome({ 
+  onBack, 
+  onSelectClub, 
+  onNavigateToCreate, 
+  onNavigateToMy, 
+  onNavigateToNotifications, 
+  onNavigateToLeaderboard, 
+  onNavigateToAdmin, 
+  onNavigateToDatabase,
+  onQuickJoin, 
+  isApplied,
+  clubsData = []
+}) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [selectedTag, setSelectedTag] = useState('全部')
-  const [displayedCount, setDisplayedCount] = useState(12)
+  const [visibleCount, setVisibleCount] = useState(8)
   const [isLoading, setIsLoading] = useState(false)
-  const [showScrollLeft, setShowScrollLeft] = useState(false)
-  const [showScrollRight, setShowScrollRight] = useState(true)
-  
+  const [displayedClubs, setDisplayedClubs] = useState([])
+  const [hasMoreClubs, setHasMoreClubs] = useState(true)
   const scrollTriggerRef = useRef(null)
   const categoryTabsRef = useRef(null)
-  
+  const [showScrollLeft, setShowScrollLeft] = useState(false)
+  const [showScrollRight, setShowScrollRight] = useState(false)
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, club: null })
+
   const debouncedSearch = useDebounce(searchQuery, 300)
-  const { isApplied, applyToClub, isLoaded } = useClubApplications()
 
   const filteredClubs = useMemo(() => {
-    if (!isLoaded) return []
-    
     let result = clubsData
-    
     if (debouncedSearch) {
       const query = debouncedSearch.toLowerCase()
-      result = result.filter(club => 
+      result = result.filter(club =>
         club.name.toLowerCase().includes(query) ||
-        club.game.toLowerCase().includes(query) ||
-        club.description.toLowerCase().includes(query) ||
-        club.tags.some(tag => tag.toLowerCase().includes(query))
+        (club.game && club.game.toLowerCase().includes(query)) ||
+        (club.description && club.description.toLowerCase().includes(query))
       )
     }
-    
     if (selectedTag !== '全部') {
       result = result.filter(club => club.game === selectedTag)
     }
-    
     return result
-  }, [isLoaded, debouncedSearch, selectedTag])
+  }, [clubsData, debouncedSearch, selectedTag])
 
-  const displayedClubs = useMemo(() => {
-    return filteredClubs.slice(0, displayedCount)
-  }, [filteredClubs, displayedCount])
-
-  const hasMoreClubs = useMemo(() => {
-    return displayedCount < filteredClubs.length
-  }, [displayedCount, filteredClubs.length])
-
-  const searchSuggestions = useMemo(() => {
-    if (!searchQuery || !isLoaded) return []
-    
-    const query = searchQuery.toLowerCase()
-    const suggestions = new Set()
-    
-    clubsData.forEach(club => {
-      if (club.name.toLowerCase().includes(query)) {
-        suggestions.add(club.name)
-      }
-      if (club.game.toLowerCase().includes(query)) {
-        suggestions.add(club.game)
-      }
-      club.tags.forEach(tag => {
-        if (tag.toLowerCase().includes(query)) {
-          suggestions.add(tag)
-        }
-      })
-    })
-    
-    return Array.from(suggestions).slice(0, 5)
-  }, [searchQuery, isLoaded])
+  useEffect(() => {
+    setDisplayedClubs(filteredClubs.slice(0, visibleCount))
+    setHasMoreClubs(visibleCount < filteredClubs.length)
+  }, [filteredClubs, visibleCount])
 
   const loadMore = useCallback(() => {
     if (isLoading) return
     setIsLoading(true)
     setTimeout(() => {
-      setDisplayedCount(prev => prev + 8)
+      setVisibleCount(prev => prev + 4)
       setIsLoading(false)
     }, 600)
   }, [isLoading])
 
-  const scrollTabs = useCallback((direction) => {
-    if (!categoryTabsRef.current) return
-    const scrollAmount = 200
-    categoryTabsRef.current.scrollBy({
-      left: direction === 'left' ? -scrollAmount : scrollAmount,
-      behavior: 'smooth'
-    })
-  }, [])
-
-  const handleSelectTag = useCallback((tagKey) => {
-    setSelectedTag(tagKey)
-    setDisplayedCount(12)
-  }, [])
-
-  const handleQuickJoin = useCallback((club) => {
-    if (isApplied(club.id)) return
-    
-    if (confirm(`确定要申请加入「${club.name}」吗？`)) {
-      alert('已发送加入申请，等待团长审核')
-      applyToClub(club.id)
-    }
-  }, [isApplied, applyToClub])
-
-  const handleNavigateToClub = useCallback((club) => {
-    onSelectClub(club.id)
-  }, [onSelectClub])
-
   useEffect(() => {
+    if (!scrollTriggerRef.current) return
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting && !isLoading && hasMoreClubs) {
-            loadMore()
-          }
-        })
+        if (entries[0].isIntersecting && hasMoreClubs && !isLoading) {
+          loadMore()
+        }
       },
-      { rootMargin: '100px' }
+      { threshold: 0.1, rootMargin: '100px' }
     )
-
-    if (scrollTriggerRef.current) {
-      observer.observe(scrollTriggerRef.current)
-    }
-
+    observer.observe(scrollTriggerRef.current)
     return () => observer.disconnect()
-  }, [isLoading, hasMoreClubs, loadMore])
+  }, [hasMoreClubs, isLoading, loadMore])
 
   useEffect(() => {
-    const updateScrollIndicators = () => {
-      if (!categoryTabsRef.current) return
-      const { scrollLeft, scrollWidth, clientWidth } = categoryTabsRef.current
-      setShowScrollLeft(scrollLeft > 0)
-      setShowScrollRight(scrollLeft < scrollWidth - clientWidth - 10)
-    }
-
-    const tabs = categoryTabsRef.current
-    if (tabs) {
-      tabs.addEventListener('scroll', updateScrollIndicators)
-      updateScrollIndicators()
-    }
-
-    return () => {
-      if (tabs) {
-        tabs.removeEventListener('scroll', updateScrollIndicators)
+    const checkScroll = () => {
+      if (categoryTabsRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = categoryTabsRef.current
+        setShowScrollLeft(scrollLeft > 0)
+        setShowScrollRight(scrollLeft < scrollWidth - clientWidth - 10)
       }
     }
+    checkScroll()
+    const interval = setInterval(checkScroll, 300)
+    return () => clearInterval(interval)
   }, [])
 
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 to-dark-200 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin" />
-          <span className="text-white text-lg">加载中...</span>
-        </div>
-      </div>
-    )
+  const scrollTabs = (direction) => {
+    if (categoryTabsRef.current) {
+      const scrollAmount = window.innerWidth < 768 ? 150 : 250
+      categoryTabsRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      })
+    }
   }
 
+  const handleSelectTag = (tag) => {
+    setSelectedTag(tag)
+    setVisibleCount(8)
+  }
+
+  const handleNavigateToClub = (club) => {
+    onSelectClub(club.id)
+  }
+
+  const handleQuickJoin = (club) => {
+    if (!isApplied(club.id)) {
+      setConfirmDialog({ isOpen: true, club })
+    }
+  }
+
+  const handleConfirmJoin = () => {
+    if (confirmDialog.club) {
+      onQuickJoin(confirmDialog.club.id)
+    }
+  }
+
+  const handleCancelJoin = () => {
+    setConfirmDialog({ isOpen: false, club: null })
+  }
+
+  const searchSuggestions = useMemo(() => {
+    if (!debouncedSearch || debouncedSearch.length < 2) return []
+    const query = debouncedSearch.toLowerCase()
+    const suggestions = new Set()
+    clubsData.forEach(club => {
+      if (club.name && club.name.toLowerCase().includes(query)) suggestions.add(club.name)
+      if (club.game && club.game.toLowerCase().includes(query)) suggestions.add(club.game)
+    })
+    return Array.from(suggestions).slice(0, 5)
+  }, [debouncedSearch, clubsData])
+
   return (
-    <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 to-dark-200">
-      <div className="sticky top-0 z-50 bg-dark-300/80 backdrop-blur-xl border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <button 
-            onClick={onBack}
-            className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors mb-4"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-            返回
-          </button>
-
-          <div className="relative">
-            <div className={`relative flex items-center transition-all duration-300 ${isSearchFocused ? 'ring-2 ring-primary-700/50' : ''}`}>
-              <svg className="absolute left-4 w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="M21 21l-4.35-4.35" />
+    <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 via-dark-200 to-dark-100 pb-24">
+      <div className="sticky top-0 z-50 bg-dark-300/90 backdrop-blur-xl border-b border-white/10 safe-area-top">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <button 
+              onClick={onBack}
+              className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors"
+              aria-label="返回"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setIsSearchFocused(true)}
-                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-                placeholder="搜索俱乐部名称、游戏类型..."
-                className="w-full pl-12 pr-10 py-3 bg-white/5 border border-white/10 rounded-full text-white placeholder-gray-400 focus:outline-none focus:bg-white/8 transition-all"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
+              <span className="hidden sm:inline">返回</span>
+            </button>
+            
+            <div className="flex items-center gap-1 sm:gap-2">
+              <button
+                onClick={onNavigateToMy}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors"
+                title="个人中心"
+                aria-label="个人中心"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </button>
+              <button
+                onClick={onNavigateToNotifications}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors relative"
+                title="消息通知"
+                aria-label="消息通知"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">2</span>
+              </button>
+              <button
+                onClick={onNavigateToLeaderboard}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+                title="排行榜"
+                aria-label="排行榜"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M8 21V10M12 21V3M16 21V14" />
+                </svg>
+              </button>
+              <button
+                onClick={onNavigateToAdmin}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+                title="管理后台"
+                aria-label="管理后台"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+              <button
+                onClick={onNavigateToDatabase}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+                title="数据库管理"
+                aria-label="数据库管理"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
             </div>
-
-            {isSearchFocused && searchSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-dark-200/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden shadow-xl z-50">
-                {searchSuggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSearchQuery(suggestion)}
-                    className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/5 transition-colors"
-                  >
-                    <svg className="w-4 h-4 text-primary-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="M21 21l-4.35-4.35" />
-                    </svg>
-                    <span className="text-gray-200">{suggestion}</span>
-                  </button>
-                ))}
-              </div>
+          </div>
+          
+          <h1 className="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4">陪玩俱乐部</h1>
+          
+          <div className={`relative flex items-center transition-all duration-300 ${isSearchFocused ? 'ring-2 ring-primary-700/50' : ''}`}>
+            <svg className="absolute left-3 sm:left-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+              placeholder="搜索俱乐部、游戏..."
+              className="w-full pl-9 sm:pl-12 pr-8 sm:pr-10 py-2.5 sm:py-3 bg-white/5 border border-white/10 rounded-full text-white placeholder-gray-400 focus:outline-none focus:bg-white/8 transition-all text-sm sm:text-base"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 sm:right-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400 hover:text-white transition-colors"
+                aria-label="清除搜索"
+              >
+                <svg className="w-full h-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
             )}
           </div>
-
-          <div className="relative mt-6">
+          
+          {isSearchFocused && searchSuggestions.length > 0 && (
+            <div className="mt-2 bg-dark-200/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden">
+              {searchSuggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    setSearchQuery(suggestion)
+                    setIsSearchFocused(false)
+                  }}
+                  className="w-full px-4 py-2.5 sm:py-3 text-left text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-3"
+                >
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <span className="text-white text-sm sm:text-base">{suggestion}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-3 sm:pb-4">
+          <div className="relative">
             {showScrollLeft && (
-              <button
-                onClick={() => scrollTabs('left')}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-dark-200/90 backdrop-blur-sm border border-white/10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:border-white/30 transition-all"
+              <button 
+                onClick={() => scrollTabs('left')} 
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 sm:w-10 sm:h-10 bg-dark-200/95 backdrop-blur-sm border border-white/10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:border-white/30 transition-all shadow-lg"
+                aria-label="向左滚动"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
             )}
-
             <div 
-              ref={categoryTabsRef}
-              className="flex gap-3 overflow-x-auto scrollbar-hide px-1"
+              ref={categoryTabsRef} 
+              className="flex gap-2 sm:gap-3 overflow-x-auto scrollbar-hide px-1"
               style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
             >
               {gameTags.map((tag) => (
                 <button
                   key={tag.key}
                   onClick={() => handleSelectTag(tag.key)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full whitespace-nowrap font-medium transition-all duration-300 ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full whitespace-nowrap font-medium transition-all duration-300 text-sm sm:text-base ${
                     selectedTag === tag.key
                       ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-lg shadow-primary-600/30'
-                      : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20 hover:-translate-y-0.5'
+                      : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
                   }`}
                 >
-                  <span>{tag.icon}</span>
+                  <span className="text-lg sm:text-xl">{tag.icon}</span>
                   <span>{tag.name}</span>
                 </button>
               ))}
             </div>
-
             {showScrollRight && (
-              <button
-                onClick={() => scrollTabs('right')}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-dark-200/90 backdrop-blur-sm border border-white/10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:border-white/30 transition-all"
+              <button 
+                onClick={() => scrollTabs('right')} 
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 sm:w-10 sm:h-10 bg-dark-200/95 backdrop-blur-sm border border-white/10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:border-white/30 transition-all shadow-lg"
+                aria-label="向右滚动"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M9 5l7 7-7 7" />
                 </svg>
               </button>
@@ -264,40 +308,38 @@ export default function ClubHome({ onBack, onSelectClub }) {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-white">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h2 className="text-lg sm:text-xl font-bold text-white">
             俱乐部列表
             <span className="text-primary-700 ml-2">({filteredClubs.length}个)</span>
           </h2>
         </div>
 
-        {displayedClubs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
-            </svg>
-            <p>暂无符合条件的俱乐部</p>
-            <p className="text-sm mt-1">请尝试其他搜索条件</p>
-          </div>
+        {filteredClubs.length === 0 ? (
+          <EmptyState 
+            title="暂无符合条件的俱乐部" 
+            description="换个搜索条件试试吧"
+            showButton={false}
+          />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
             {displayedClubs.map((club, index) => (
-              <div
-                key={club.id}
-                onClick={() => handleNavigateToClub(club)}
-                className="group relative bg-gradient-to-br from-white/5 to-white/2 border border-white/10 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:border-primary-700/30 hover:shadow-xl hover:shadow-primary-700/10"
+              <Card 
+                key={club.id} 
+                onClick={() => handleNavigateToClub(club)} 
+                className="group animate-fade-in"
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
-                <div className="relative h-40 overflow-hidden">
-                  <img
-                    src={club.icon}
-                    alt={club.name}
+                <div className="relative aspect-video sm:aspect-[4/3] lg:aspect-[4/3] xl:aspect-video overflow-hidden rounded-xl mb-3 sm:mb-4">
+                  <img 
+                    src={club.icon_url || club.icon} 
+                    alt={club.name} 
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    loading="lazy"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-dark-300 via-transparent to-transparent" />
-                  <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-xs font-bold ${
+                  <div className={`absolute top-2 sm:top-3 right-2 sm:right-3 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-xs font-bold ${
                     club.game === '王者荣耀' ? 'bg-gradient-to-r from-yellow-500/90 to-yellow-600/90 text-black' :
                     club.game === '光遇' ? 'bg-gradient-to-r from-sky-400/90 to-sky-500/90 text-black' :
                     club.game === '和平精英' ? 'bg-gradient-to-r from-green-500/90 to-green-600/90 text-white' :
@@ -308,96 +350,90 @@ export default function ClubHome({ onBack, onSelectClub }) {
                     {club.game}
                   </div>
                 </div>
-
-                <div className="p-4">
-                  <h3 className="text-lg font-bold text-white mb-2 group-hover:text-primary-700 transition-colors">
-                    {club.name}
-                  </h3>
-
-                  <div className="flex items-center gap-1 text-gray-400 text-sm mb-2">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                      <circle cx="9" cy="7" r="4" />
-                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
-                    <span>成员: {club.memberCount}人</span>
-                  </div>
-
-                  <p className="text-gray-400 text-sm line-clamp-3 mb-3">
-                    {club.description}
-                  </p>
-
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {club.tags.map((tag, i) => (
-                      <span key={i} className="px-2 py-1 bg-white/5 text-xs text-gray-300 rounded-full">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-xs text-gray-400">活跃中</span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleQuickJoin(club)
-                      }}
-                      disabled={isApplied(club.id)}
-                      className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all duration-300 ${
-                        isApplied(club.id)
-                          ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:shadow-lg hover:shadow-primary-600/30 hover:scale-105'
-                      }`}
-                    >
-                      {isApplied(club.id) ? '已申请' : '申请加入'}
-                    </button>
-                  </div>
+                
+                <h3 className="text-base sm:text-lg font-bold text-white mb-1.5 sm:mb-2 group-hover:text-primary-700 transition-colors line-clamp-1">
+                  {club.name}
+                </h3>
+                
+                <div className="flex items-center gap-1 sm:gap-1.5 text-gray-400 text-xs sm:text-sm mb-1.5 sm:mb-2">
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                  {club.member_count > 0 && <span>{club.member_count}人</span>}
                 </div>
-              </div>
+                
+                <p className="text-gray-400 text-xs sm:text-sm line-clamp-2 mb-2 sm:mb-3">
+                  {club.description}
+                </p>
+                
+                <div className="flex flex-wrap gap-1 sm:gap-1.5 mb-3 sm:mb-4">
+                  {club.special_services?.slice(0, 3).map((tag, i) => (
+                    <span key={i} className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-white/5 text-xs text-gray-300 rounded-full">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-xs sm:text-sm text-gray-400">活跃中</span>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    onClick={(e) => { e.stopPropagation(); handleQuickJoin(club); }} 
+                    disabled={isApplied(club.id)}
+                    className={isApplied(club.id) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
+                  >
+                    {isApplied(club.id) ? '已申请' : '申请加入'}
+                  </Button>
+                </div>
+              </Card>
             ))}
           </div>
         )}
 
         {hasMoreClubs && (
-          <div ref={scrollTriggerRef} className="flex items-center justify-center py-8">
+          <div ref={scrollTriggerRef} className="flex items-center justify-center py-6 sm:py-8">
             {isLoading ? (
               <div className="flex items-center gap-2 text-primary-700">
-                <div className="w-5 h-5 border-2 border-primary-700 border-t-transparent rounded-full animate-spin" />
-                <span>加载中...</span>
+                <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-primary-700 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm sm:text-base">加载中...</span>
               </div>
             ) : (
-              <button
-                onClick={loadMore}
-                className="px-6 py-3 bg-white/5 border border-white/10 rounded-full text-white hover:bg-white/10 hover:border-white/20 transition-all"
-              >
+              <Button variant="secondary" onClick={loadMore} size="sm">
                 加载更多俱乐部
-              </button>
+              </Button>
             )}
           </div>
         )}
 
         {!hasMoreClubs && displayedClubs.length > 0 && (
-          <div className="text-center py-4 text-gray-400 text-sm">
-            已加载全部俱乐部
-          </div>
+          <div className="text-center py-4 text-gray-400 text-sm">已加载全部俱乐部</div>
         )}
       </div>
 
-      <style>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .line-clamp-3 {
-          display: -webkit-box;
-          -webkit-line-clamp: 3;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-      `}</style>
+      <div className="fixed bottom-4 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-40 safe-area-bottom">
+        <Button onClick={onNavigateToCreate} className="shadow-xl shadow-primary-700/30 px-6 sm:px-8">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span className="text-sm sm:text-base">创建俱乐部</span>
+          </span>
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={handleCancelJoin}
+        title="申请加入俱乐部"
+        message={confirmDialog.club ? `确定要申请加入「${confirmDialog.club.name}」吗？` : ''}
+        onConfirm={handleConfirmJoin}
+      />
     </div>
   )
 }

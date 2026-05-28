@@ -34,3 +34,6 @@ Thumbs.db
 # Git
 .git/
 .vercel
+
+.vercel
+.env*

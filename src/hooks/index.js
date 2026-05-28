@@ -1,87 +1,88 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { applicationService } from '../services/supabase';
 
 export const useClubApplications = () => {
-  const [appliedClubs, setAppliedClubs] = useState([])
-  const [isLoaded, setIsLoaded] = useState(false)
+  const [appliedClubs, setAppliedClubs] = useState([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
-  const loadAppliedClubs = useCallback(() => {
+  const loadAppliedClubs = useCallback(async () => {
     try {
-      if (typeof localStorage === 'undefined') {
-        console.warn('localStorage is not available')
-        setIsLoaded(true)
-        return
+      const result = await applicationService.getUserApplications('anonymous');
+      if (result.data) {
+        const clubIds = result.data.map(app => app.club_id);
+        setAppliedClubs(clubIds);
       }
-      
-      const stored = localStorage.getItem('club_applications')
-      if (stored) {
-        const data = JSON.parse(stored)
-        if (data && Array.isArray(data.appliedClubs)) {
-          setAppliedClubs(data.appliedClubs)
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load applications:', e)
+    } catch (error) {
+      console.error('Failed to load applications:', error);
     } finally {
-      setIsLoaded(true)
+      setIsLoaded(true);
     }
-  }, [])
-
-  const saveAppliedClubs = useCallback((clubs) => {
-    try {
-      if (typeof localStorage === 'undefined') {
-        console.warn('localStorage is not available')
-        return
-      }
-      
-      const data = {
-        appliedClubs: clubs,
-        savedAt: new Date().toISOString()
-      }
-      localStorage.setItem('club_applications', JSON.stringify(data))
-    } catch (e) {
-      console.error('Failed to save applications:', e)
-    }
-  }, [])
+  }, []);
 
   const isApplied = useCallback((clubId) => {
-    return appliedClubs.includes(clubId)
-  }, [appliedClubs])
+    return appliedClubs.includes(clubId);
+  }, [appliedClubs]);
 
-  const applyToClub = useCallback((clubId) => {
-    setAppliedClubs(prev => {
-      if (!prev.includes(clubId)) {
-        const updated = [...prev, clubId]
-        saveAppliedClubs(updated)
-        return updated
+  const applyToClub = useCallback(async (clubId) => {
+    if (isApplying) return;
+    
+    setIsApplying(true);
+    
+    try {
+      const result = await applicationService.applyToClub(clubId, 'anonymous');
+      
+      if (result.data && !result.alreadyApplied) {
+        setAppliedClubs(prev => [...prev, clubId]);
       }
-      return prev
-    })
-  }, [saveAppliedClubs])
+    } catch (error) {
+      console.error('Failed to apply to club:', error);
+    } finally {
+      setIsApplying(false);
+    }
+  }, [isApplying]);
+
+  const removeApplication = useCallback(async (clubId) => {
+    try {
+      setAppliedClubs(prev => prev.filter(id => id !== clubId));
+    } catch (error) {
+      console.error('Failed to remove application:', error);
+    }
+  }, []);
 
   useEffect(() => {
-    loadAppliedClubs()
-  }, [loadAppliedClubs])
+    loadAppliedClubs();
+  }, [loadAppliedClubs]);
 
   return {
     appliedClubs,
     isApplied,
     applyToClub,
-    isLoaded
-  }
-}
+    removeApplication,
+    isLoaded,
+    isApplying
+  };
+};
 
 export const useDebounce = (value, delay) => {
-  const [debouncedValue, setDebouncedValue] = useState(value)
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  const timerRef = useRef(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    
+    timerRef.current = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
 
     return () => {
-      clearTimeout(timer)
-    }
-  }, [value, delay])
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [value, delay]);
 
-  return debouncedValue
-}
+  return debouncedValue;
+};

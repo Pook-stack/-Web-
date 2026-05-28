@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Button } from './ui'
 
 export default function WelcomePage({ onEnter }) {
   const [showContent, setShowContent] = useState(false)
@@ -100,19 +101,19 @@ export default function WelcomePage({ onEnter }) {
           与志同道合的玩家一起，共享游戏乐趣
         </p>
 
-        <button
+        <Button
           onClick={onEnter}
-          className={`group relative px-12 py-4 text-lg font-bold text-white bg-gradient-to-r from-primary-600 to-primary-700 rounded-full transition-all duration-500 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(0,242,255,0.5)] active:scale-95 ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}
+          size="lg"
+          className={`transition-all duration-500 transform ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}
           style={{ animationDelay: '0.9s' }}
         >
-          <span className="relative z-10 flex items-center gap-2">
+          <span className="flex items-center gap-2">
             进入首页
-            <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
           </span>
-          <div className="absolute inset-0 rounded-full bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-        </button>
+        </Button>
       </div>
 
       <style>{`
