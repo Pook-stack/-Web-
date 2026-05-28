@@ -367,7 +367,22 @@ export default function ClubHome({
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-dark-300 via-transparent to-transparent" />
-                  <div className={`absolute top-2 sm:top-3 right-2 sm:right-3 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-xs font-bold ${
+                  {/* 官方徽章 */}
+                  {club.is_official && (
+                    <div className="absolute top-2 sm:top-3 right-2 sm:right-3 z-10">
+                      <div className="relative">
+                        <div className="absolute -inset-0.5 bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-400 rounded-lg blur animate-pulse"></div>
+                        <div className="relative bg-gradient-to-r from-yellow-500 via-amber-600 to-yellow-500 text-black text-xs font-black px-2.5 py-1 rounded-lg shadow-lg border border-yellow-400/50 flex items-center gap-1">
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2l2.39 4.84 5.34.78-3.86 3.76.91 5.31L12 14.77l-4.78 2.48.91-5.31L4.27 7.62l5.34-.78L12 2z" />
+                          </svg>
+                          官方
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* 游戏标签 */}
+                  <div className={`absolute top-2 sm:top-3 ${club.is_official ? 'left-2 sm:left-3' : 'right-2 sm:right-3'} px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-xs font-bold ${
                     club.game === '王者荣耀' ? 'bg-gradient-to-r from-yellow-500/90 to-yellow-600/90 text-black' :
                     club.game === '光遇' ? 'bg-gradient-to-r from-sky-400/90 to-sky-500/90 text-black' :
                     club.game === '和平精英' ? 'bg-gradient-to-r from-green-500/90 to-green-600/90 text-white' :
