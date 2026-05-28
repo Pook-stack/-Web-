@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { notificationService } from './notificationService'
 
 const ADMIN_USER_ID = 'admin'
 const HELPER_USER_ID = 'helper'
@@ -162,6 +163,11 @@ export const memberService = {
       if (error) throw error
       
       await clubService.incrementMemberCount(clubId)
+
+      const { data: club } = await clubService.getClubById(clubId)
+      if (club) {
+        await notificationService.createClubJoinedNotification(userId, club.name)
+      }
       
       return { data, error: null }
     } catch (error) {
@@ -485,6 +491,14 @@ export const applicationService = {
 
   async processApplication(applicationId, status) {
     try {
+      const { data: existingApp, error: fetchError } = await supabase
+        .from('applications')
+        .select('*, clubs(*)')
+        .eq('id', applicationId)
+        .single()
+      
+      if (fetchError) throw fetchError
+
       const { data, error } = await supabase
         .from('applications')
         .update({ 
@@ -496,6 +510,18 @@ export const applicationService = {
         .single()
       
       if (error) throw error
+
+      if (existingApp.clubs) {
+        const clubName = existingApp.clubs.name
+        const userId = existingApp.user_id
+        
+        if (status === 'approved') {
+          await notificationService.createApplicationApprovedNotification(userId, clubName)
+        } else if (status === 'rejected') {
+          await notificationService.createApplicationRejectedNotification(userId, clubName)
+        }
+      }
+      
       return { data, error: null }
     } catch (error) {
       console.error('Error processing application:', error)

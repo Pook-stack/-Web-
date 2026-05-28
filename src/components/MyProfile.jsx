@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Card, Avatar, Button, StatusTag } from './ui'
+import { notificationService } from '../services/notificationService'
 
 const mockUserData = {
   nickname: '游戏玩家',
@@ -15,6 +16,8 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
   const [activeTab, setActiveTab] = useState('clubs')
   const [myClubs, setMyClubs] = useState([])
   const [myApplications, setMyApplications] = useState([])
+  // 通知数量状态 - 此处已移除假数据，等待接入Supabase真实通知
+  const [notificationCount, setNotificationCount] = useState(0)
 
   useEffect(() => {
     const appliedClubIds = appliedClubs || []
@@ -34,6 +37,26 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
     
     setMyApplications(applications)
   }, [clubsData, appliedClubs])
+
+  // 获取真实通知数量 - 此处已移除假数据，等待接入Supabase真实通知
+  useEffect(() => {
+    const fetchNotificationCount = async () => {
+      try {
+        const result = await notificationService.getAllNotifications()
+        if (result.data && result.data.length > 0) {
+          const unreadCount = result.data.filter(n => !n.read && !n.dismissed).length
+          setNotificationCount(unreadCount)
+        } else {
+          setNotificationCount(0)
+        }
+      } catch (error) {
+        console.error('获取通知数量失败:', error)
+        setNotificationCount(0)
+      }
+    }
+
+    fetchNotificationCount()
+  }, [])
 
   const tabs = [
     { key: 'clubs', label: '我的俱乐部', count: myClubs.length },
@@ -127,9 +150,12 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
                   <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                  2
-                </span>
+                {/* 通知数量 - 此处已移除假数据，等待接入Supabase真实通知 */}
+                {notificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </span>
+                )}
               </button>
             </div>
           </div>
