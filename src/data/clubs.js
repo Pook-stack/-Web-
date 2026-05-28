@@ -9,4 +9,16 @@ export const gameTags = [
   { key: '无畏契约', name: '无畏契约', icon: '💜' },
   { key: '崩坏：星穹铁道', name: '崩坏：星穹铁道', icon: '🚂' },
   { key: 'CS2', name: 'CS2', icon: '🎯' },
+  // 新增游戏分类（2026-05-28）
+  { key: '蛋仔派对', name: '蛋仔派对', icon: '🥚' },
+  { key: '我的世界', name: '我的世界', icon: '🏠' },
+  { key: '第五人格', name: '第五人格', icon: '🎭' },
+  { key: '金铲铲之战', name: '金铲铲之战', icon: '🔶' },
+  { key: '永劫无间', name: '永劫无间', icon: '⚔️' },
 ]
+
+export const getGameTagByKey = (key) => {
+  return gameTags.find(tag => tag.key === key) || gameTags[0]
+}
+
+export default gameTags

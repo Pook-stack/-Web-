@@ -23,12 +23,12 @@ const TableEditor = () => {
       const { data: tableData, error: tableError } = await supabase.rpc('list_tables');
       if (tableError) throw tableError;
       
-      const tableNames = tableData?.map(t => t.table_name) || ['clubs', 'users', 'club_members', 'applications'];
+      const tableNames = tableData?.map(t => t.table_name) || ['clubs', 'users', 'club_members', 'applications', 'notifications'];
       setTables(tableNames.filter(t => t));
     } catch (err) {
       console.error('Failed to fetch tables:', err);
       setError('无法获取表列表，请检查数据库连接');
-      setTables(['clubs', 'users', 'club_members', 'applications']);
+      setTables(['clubs', 'users', 'club_members', 'applications', 'notifications']);
     } finally {
       setLoading(false);
     }
