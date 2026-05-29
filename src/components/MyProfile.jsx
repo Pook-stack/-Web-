@@ -42,9 +42,9 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
   useEffect(() => {
     const fetchNotificationCount = async () => {
       try {
-        const result = await notificationService.getAllNotifications()
+        const result = await notificationService.getNotifications(0, 100)
         if (result.data && result.data.length > 0) {
-          const unreadCount = result.data.filter(n => !n.read && !n.dismissed).length
+          const unreadCount = result.data.filter(n => !n.is_read && !n.dismissed).length
           setNotificationCount(unreadCount)
         } else {
           setNotificationCount(0)

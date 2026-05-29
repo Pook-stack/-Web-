@@ -1,26 +1,87 @@
 import { useState, useEffect } from 'react'
 import { Card, Button, Avatar, StatusTag } from './ui'
+import { applicationService } from '../services/supabase'
 
 export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, onRejectClub, onSelectClub }) {
   const [activeTab, setActiveTab] = useState('pending')
   const [pendingClubs, setPendingClubs] = useState([])
   const [approvedClubs, setApprovedClubs] = useState([])
   const [rejectedClubs, setRejectedClubs] = useState([])
+  const [pendingApplications, setPendingApplications] = useState([])
+  const [isLoadingApps, setIsLoadingApps] = useState(false)
 
   useEffect(() => {
-    const pending = clubsData.filter(club => club.status === 'pending')
-    const approved = clubsData.filter(club => club.status === 'approved')
-    const rejected = clubsData.filter(club => club.status === 'rejected')
+    const validClubs = Array.isArray(clubsData) ? clubsData.filter(club => club && club.id && club.status) : []
+    const pending = validClubs.filter(club => club.status === 'pending')
+    const approved = validClubs.filter(club => club.status === 'approved')
+    const rejected = validClubs.filter(club => club.status === 'rejected')
     
     setPendingClubs(pending)
     setApprovedClubs(approved)
     setRejectedClubs(rejected)
   }, [clubsData])
 
+  useEffect(() => {
+    loadPendingApplications()
+  }, [])
+
+  const loadPendingApplications = async () => {
+    setIsLoadingApps(true)
+    try {
+      const result = await applicationService.getPendingApplications()
+      if (result && result.data && Array.isArray(result.data)) {
+        const validApps = result.data.filter(app => app && app.id && app.club_id)
+        setPendingApplications(validApps)
+      } else {
+        setPendingApplications([])
+      }
+    } catch (error) {
+      console.error('加载待审核申请失败:', error)
+      setPendingApplications([])
+    } finally {
+      setIsLoadingApps(false)
+    }
+  }
+
+  const handleApproveApplication = async (applicationId, clubName) => {
+    try {
+      if (window.confirm(`确定要批准该用户加入「${clubName}」吗？`)) {
+        const result = await applicationService.processApplication(applicationId, 'approved')
+        if (result && result.data) {
+          alert('申请已批准，用户已加入俱乐部')
+          await loadPendingApplications()
+        } else {
+          alert(`操作失败: ${result?.error?.message || '未知错误'}`)
+        }
+      }
+    } catch (error) {
+      console.error('批准申请失败:', error)
+      alert(`操作失败: ${error.message || '未知错误'}`)
+    }
+  }
+
+  const handleRejectApplication = async (applicationId, clubName) => {
+    try {
+      if (window.confirm(`确定要拒绝该用户加入「${clubName}」的申请吗？`)) {
+        const result = await applicationService.processApplication(applicationId, 'rejected')
+        if (result && result.data) {
+          alert('申请已拒绝')
+          await loadPendingApplications()
+        } else {
+          alert(`操作失败: ${result?.error?.message || '未知错误'}`)
+        }
+      }
+    } catch (error) {
+      console.error('拒绝申请失败:', error)
+      alert(`操作失败: ${error.message || '未知错误'}`)
+    }
+  }
+
   const tabs = [
-    { key: 'pending', label: '待审核', count: pendingClubs.length, color: 'yellow' },
-    { key: 'approved', label: '已通过', count: approvedClubs.length, color: 'green' },
-    { key: 'rejected', label: '已拒绝', count: rejectedClubs.length, color: 'gray' },
+    { key: 'pending', label: '待审核俱乐部', count: pendingClubs.length, color: 'yellow' },
+    { key: 'approved', label: '已通过俱乐部', count: approvedClubs.length, color: 'green' },
+    { key: 'rejected', label: '已拒绝俱乐部', count: rejectedClubs.length, color: 'gray' },
+    { key: 'applications', label: '待审核申请', count: pendingApplications.length, color: 'blue' },
   ]
 
   const getCurrentClubs = () => {
@@ -77,7 +138,9 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
                       ? 'bg-yellow-500 text-black'
                       : tab.key === 'approved'
                         ? 'bg-green-500 text-white'
-                        : 'bg-gray-500 text-white'
+                        : tab.key === 'applications'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-500 text-white'
                     : 'bg-white/5 text-gray-300 hover:bg-white/10'
                 }`}
               >
@@ -103,7 +166,72 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
           </div>
         </div>
 
-        {getCurrentClubs().length === 0 ? (
+        {activeTab === 'applications' ? (
+          isLoadingApps ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+              <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin mb-4" />
+              <p>加载中...</p>
+            </div>
+          ) : pendingApplications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+              <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+                <rect x="9" y="3" width="6" height="4" rx="2" />
+                <path d="M9 12h6" />
+                <path d="M9 16h6" />
+              </svg>
+              <p>暂无待审核的加入申请</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pendingApplications.map((application) => (
+                <Card key={application.id} className="relative">
+                  <div className="absolute top-3 right-3 flex gap-2">
+                    <button
+                      onClick={() => handleApproveApplication(application.id, application.clubs?.name || '俱乐部')}
+                      className="p-2 bg-green-500/20 text-green-500 rounded-lg hover:bg-green-500/30 transition-colors"
+                      title="批准"
+                    >
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleRejectApplication(application.id, application.clubs?.name || '俱乐部')}
+                      className="p-2 bg-red-500/20 text-red-500 rounded-lg hover:bg-red-500/30 transition-colors"
+                      title="拒绝"
+                    >
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={application.clubs?.icon_url || application.clubs?.icon || 'https://via.placeholder.com/100'}
+                      alt={application.clubs?.name}
+                      className="w-16 h-16 rounded-lg object-cover"
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold text-white">
+                        {application.clubs?.name || '未知俱乐部'}
+                      </h3>
+                      <p className="text-sm text-gray-400">
+                        用户 <span className="text-primary-700">{application.user_id}</span> 申请加入
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
+                        <span>申请时间: {new Date(application.applied_at).toLocaleString('zh-CN')}</span>
+                        <StatusTag status="pending" />
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )
+        ) : getCurrentClubs().length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
@@ -210,15 +338,15 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
           <div className="flex gap-6">
             <div>
               <div className="text-2xl font-bold text-yellow-400">{pendingClubs.length}</div>
-              <div className="text-xs text-gray-400">待审核</div>
+              <div className="text-xs text-gray-400">待审核俱乐部</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-green-400">{approvedClubs.length}</div>
-              <div className="text-xs text-gray-400">已通过</div>
+              <div className="text-xs text-gray-400">已通过俱乐部</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-400">{rejectedClubs.length}</div>
-              <div className="text-xs text-gray-400">已拒绝</div>
+              <div className="text-2xl font-bold text-blue-400">{pendingApplications.length}</div>
+              <div className="text-xs text-gray-400">待审核申请</div>
             </div>
           </div>
           <div className="text-sm text-gray-400">

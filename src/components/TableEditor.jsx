@@ -20,15 +20,23 @@ const TableEditor = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data: tableData, error: tableError } = await supabase.rpc('list_tables');
+      const { data: tableData, error: tableError } = await supabase
+        .from('information_schema.tables')
+        .select('table_name')
+        .eq('table_schema', 'public')
+        .not('table_name', 'like', '%metadata%')
+        .not('table_name', 'like', '%auth%');
+      
       if (tableError) throw tableError;
       
-      const tableNames = tableData?.map(t => t.table_name) || ['clubs', 'users', 'club_members', 'applications', 'notifications'];
-      setTables(tableNames.filter(t => t));
+      const tableNames = tableData?.map(t => t.table_name) || [];
+      
+      const defaultTables = ['clubs', 'users', 'club_members', 'applications', 'notifications', 'club_admins', 'member_audit_log', 'reviews'];
+      setTables(tableNames.length > 0 ? tableNames : defaultTables);
     } catch (err) {
       console.error('Failed to fetch tables:', err);
       setError('无法获取表列表，请检查数据库连接');
-      setTables(['clubs', 'users', 'club_members', 'applications', 'notifications']);
+      setTables(['clubs', 'users', 'club_members', 'applications', 'notifications', 'club_admins', 'member_audit_log', 'reviews']);
     } finally {
       setLoading(false);
     }

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { applicationService } from '../services/supabase';
+import { applicationService, memberService } from '../services/supabase';
 
 export const useClubApplications = () => {
   const [appliedClubs, setAppliedClubs] = useState([]);
+  const [memberClubs, setMemberClubs] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
@@ -20,9 +21,29 @@ export const useClubApplications = () => {
     }
   }, []);
 
+  const loadMemberClubs = useCallback(async () => {
+    try {
+      const result = await memberService.getMemberClubsByUserId('anonymous');
+      if (result.data) {
+        const clubIds = result.data.map(member => member.club_id);
+        setMemberClubs(clubIds);
+      }
+    } catch (error) {
+      console.error('Failed to load member clubs:', error);
+    }
+  }, []);
+
   const isApplied = useCallback((clubId) => {
     return appliedClubs.includes(clubId);
   }, [appliedClubs]);
+
+  const isMember = useCallback((clubId) => {
+    return memberClubs.includes(clubId);
+  }, [memberClubs]);
+
+  const canApply = useCallback((clubId) => {
+    return !isApplied(clubId) && !isMember(clubId);
+  }, [isApplied, isMember]);
 
   const applyToClub = useCallback(async (clubId) => {
     if (isApplying) return;
@@ -50,15 +71,33 @@ export const useClubApplications = () => {
     }
   }, []);
 
+  const joinClub = useCallback(async (clubId) => {
+    try {
+      // 将俱乐部添加到成员列表
+      setMemberClubs(prev => [...prev, clubId]);
+      // 从申请列表中移除
+      setAppliedClubs(prev => prev.filter(id => id !== clubId));
+    } catch (error) {
+      console.error('Failed to join club:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadAppliedClubs();
-  }, [loadAppliedClubs]);
+    loadMemberClubs();
+  }, [loadAppliedClubs, loadMemberClubs]);
 
   return {
     appliedClubs,
+    memberClubs,
     isApplied,
+    isMember,
+    canApply,
     applyToClub,
     removeApplication,
+    joinClub,
+    loadAppliedClubs,
+    loadMemberClubs,
     isLoaded,
     isApplying
   };

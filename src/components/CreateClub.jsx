@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { gameTags } from '../data/clubs'
 import { Button, Card, Avatar } from './ui'
+import CustomSelect from './CustomSelect'
 
 const specialServicesList = [
   '排位陪练', '教学指导', '开黑车队', '赛事训练',
@@ -15,6 +16,8 @@ const initialFormData = {
   contact: '',
   memberRequirement: '',
   priceRange: '',
+  customPrice: '',
+  customService: '',
   specialServices: [],
   coverImage: '',
 }
@@ -27,6 +30,8 @@ export default function CreateClub({ onBack, onSubmit, onSuccess, isAdmin = fals
   const [showToast, setShowToast] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [submitError, setSubmitError] = useState('')
+  const [coverImagePreview, setCoverImagePreview] = useState('')
+  const [imageUploadError, setImageUploadError] = useState('')
 
   const selectedGame = useMemo(() => {
     return gameTags.find(tag => tag.key === formData.game)
@@ -87,6 +92,52 @@ export default function CreateClub({ onBack, onSubmit, onSuccess, isAdmin = fals
     setShowToast(true)
     setTimeout(() => setShowToast(false), 3000)
   }, [])
+
+  const handleImageUpload = useCallback((e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setImageUploadError('')
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png']
+    const maxSize = 5 * 1024 * 1024
+
+    if (!allowedTypes.includes(file.type)) {
+      setImageUploadError('请上传 JPG 或 PNG 格式的图片')
+      return
+    }
+
+    if (file.size > maxSize) {
+      setImageUploadError('图片大小不能超过 5MB')
+      return
+    }
+
+    const img = new Image()
+    img.onload = () => {
+      if (img.width < 800 || img.height < 450) {
+        setImageUploadError('图片尺寸不能小于 800×450 像素')
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64String = event.target.result
+        setCoverImagePreview(base64String)
+        handleInputChange('coverImage', base64String)
+      }
+      reader.readAsDataURL(file)
+    }
+    img.onerror = () => {
+      setImageUploadError('图片加载失败，请重试')
+    }
+    img.src = URL.createObjectURL(file)
+  }, [handleInputChange])
+
+  const removeCoverImage = useCallback(() => {
+    setCoverImagePreview('')
+    handleInputChange('coverImage', '')
+    setImageUploadError('')
+  }, [handleInputChange])
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault()
@@ -220,6 +271,53 @@ export default function CreateClub({ onBack, onSubmit, onSuccess, isAdmin = fals
           
           <div className="space-y-4">
             <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">俱乐部封面图片</label>
+              <div className="relative">
+                <div className={`aspect-video rounded-xl border-2 border-dashed overflow-hidden transition-all ${
+                  coverImagePreview 
+                    ? 'border-primary-700' 
+                    : 'border-white/20 hover:border-white/40'
+                }`}>
+                  {coverImagePreview ? (
+                    <div className="relative w-full h-full">
+                      <img 
+                        src={coverImagePreview} 
+                        alt="封面预览" 
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeCoverImage}
+                        className="absolute top-3 right-3 p-2 bg-black/50 rounded-lg hover:bg-black/70 transition-colors"
+                      >
+                        <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+                      <svg className="w-12 h-12 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      <span className="text-sm">点击或拖拽上传封面图片</span>
+                      <span className="text-xs text-gray-500 mt-1">支持 JPG、PNG 格式，建议尺寸 800×450，最大 5MB</span>
+                    </div>
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png"
+                  onChange={handleImageUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </div>
+              {imageUploadError && <p className="text-red-500 text-sm mt-2">{imageUploadError}</p>}
+            </div>
+            
+            <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">俱乐部名称 *</label>
               <input
                 type="text"
@@ -233,19 +331,22 @@ export default function CreateClub({ onBack, onSubmit, onSuccess, isAdmin = fals
             
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">游戏类型 *</label>
-              <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-8 gap-2">
-                {gameTags.map((tag) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                {gameTags.filter(tag => tag.key !== '全部').map((tag) => (
                   <button
                     key={tag.key}
                     type="button"
                     onClick={() => handleInputChange('game', tag.key)}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                       formData.game === tag.key
-                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white'
-                        : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                        ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-lg shadow-primary-600/30'
+                        : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
                     }`}
                   >
-                    <span className="text-base">{tag.icon}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-base">{tag.icon}</span>
+                      <span>{tag.name}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -284,37 +385,139 @@ export default function CreateClub({ onBack, onSubmit, onSuccess, isAdmin = fals
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">价格区间</label>
-              <select
-                value={formData.priceRange}
-                onChange={(e) => handleInputChange('priceRange', e.target.value)}
-                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary-700 transition-colors"
-              >
-                <option value="">请选择价格区间</option>
-                <option value="免费">免费</option>
-                <option value="50元以下">50元以下</option>
-                <option value="50-100元">50-100元</option>
-                <option value="100-200元">100-200元</option>
-                <option value="200元以上">200元以上</option>
-              </select>
+              <div className="space-y-2">
+                <CustomSelect
+                  options={[
+                    { value: '免费', label: '免费' },
+                    { value: '50元以下', label: '50元以下' },
+                    { value: '50-100元', label: '50-100元' },
+                    { value: '100-200元', label: '100-200元' },
+                    { value: '200元以上', label: '200元以上' },
+                    { value: 'custom', label: '自定义价格' },
+                  ]}
+                  value={formData.priceRange}
+                  onChange={(value) => {
+                    handleInputChange('priceRange', value)
+                    if (value !== 'custom') {
+                      handleInputChange('customPrice', '')
+                    }
+                  }}
+                  placeholder="请选择价格区间"
+                />
+                {formData.priceRange === 'custom' && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={formData.customPrice}
+                      onChange={(e) => handleInputChange('customPrice', e.target.value)}
+                      placeholder="请输入价格（元）"
+                      min="0"
+                      className="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary-700 transition-colors"
+                    />
+                    <span className="text-gray-400">元</span>
+                  </div>
+                )}
+              </div>
             </div>
             
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">特色服务</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {specialServicesList.map((service) => (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {specialServicesList.map((service) => (
+                    <button
+                      key={service}
+                      type="button"
+                      onClick={() => handleServiceToggle(service)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                        formData.specialServices.includes(service)
+                          ? 'bg-primary-700 text-white shadow-lg shadow-primary-700/30'
+                          : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {service}
+                    </button>
+                  ))}
+                </div>
+                
+                {formData.specialServices.length > 0 && (
+                  <div className="pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-gray-400">已选服务</span>
+                      <span className="text-xs px-2 py-0.5 bg-primary-700/20 text-primary-400 rounded-full">
+                        {formData.specialServices.length}项
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {formData.specialServices.map((service, index) => (
+                        <div
+                          key={`${service}-${index}`}
+                          className="group flex items-center gap-2 px-3 py-1.5 bg-primary-700/20 border border-primary-700/30 rounded-lg"
+                        >
+                          <span className="text-sm text-primary-400">{service}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleServiceToggle(service)}
+                            className="p-0.5 text-gray-400 hover:text-red-400 hover:bg-red-500/20 rounded transition-all duration-200"
+                            title="移除服务"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={formData.customService}
+                      onChange={(e) => handleInputChange('customService', e.target.value)}
+                      placeholder="添加自定义服务"
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary-700 focus:ring-2 focus:ring-primary-700/20 transition-all duration-200"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && formData.customService.trim()) {
+                          e.preventDefault()
+                          handleServiceToggle(formData.customService.trim())
+                          handleInputChange('customService', '')
+                        }
+                      }}
+                    />
+                    {formData.customService && (
+                      <button
+                        type="button"
+                        onClick={() => handleInputChange('customService', '')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                   <button
-                    key={service}
                     type="button"
-                    onClick={() => handleServiceToggle(service)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      formData.specialServices.includes(service)
-                        ? 'bg-primary-700 text-white'
-                        : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                    }`}
+                    onClick={() => {
+                      if (formData.customService.trim()) {
+                        handleServiceToggle(formData.customService.trim())
+                        handleInputChange('customService', '')
+                      }
+                    }}
+                    disabled={!formData.customService.trim()}
+                    className="px-4 py-2.5 bg-primary-700 text-white rounded-xl hover:bg-primary-600 hover:shadow-lg hover:shadow-primary-700/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
                   >
-                    {service}
+                    <span className="flex items-center gap-1.5">
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      添加
+                    </span>
                   </button>
-                ))}
+                </div>
               </div>
             </div>
           </div>

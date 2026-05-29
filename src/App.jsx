@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useClubApplications } from './hooks'
 import { clubService, applicationService, adminService, memberService, testConnection, initAdminSystem } from './services/supabase'
+import { adminManagementService } from './services/adminManagementService'
 import WelcomePage from './components/WelcomePage'
 import ClubHome from './components/ClubHome'
 import ClubDetail from './components/ClubDetail'
@@ -10,48 +11,70 @@ import Notifications from './components/Notifications'
 import Leaderboard from './components/Leaderboard'
 import AdminDashboard from './components/AdminDashboard'
 import DatabaseManager from './components/DatabaseManager'
+import ChatInterface from './components/ChatInterface'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
   const [selectedClubId, setSelectedClubId] = useState(null)
+  const [selectedClubName, setSelectedClubName] = useState('')
   const [clubs, setClubs] = useState([])
   const [pendingClubs, setPendingClubs] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [dbConnected, setDbConnected] = useState(false)
   const [connectionError, setConnectionError] = useState(null)
   const [users, setUsers] = useState([])
-  const { appliedClubs, isApplied, applyToClub: applyToClubHook } = useClubApplications()
+  const { appliedClubs, memberClubs, isApplied, isMember, canApply, applyToClub: applyToClubHook, joinClub, loadAppliedClubs, loadMemberClubs } = useClubApplications()
+
+  const loadClubsWithMemberCount = async () => {
+    const result = await clubService.getAllClubs()
+    if (result.data) {
+      const clubsWithCount = await Promise.all(
+        result.data.map(async (club) => {
+          const countResult = await adminManagementService.getRealMemberCount(club.id)
+          return {
+            ...club,
+            memberCount: countResult.success ? countResult.count : 0
+          }
+        })
+      )
+      setClubs(clubsWithCount)
+      return clubsWithCount
+    }
+    return []
+  }
 
   useEffect(() => {
     const initApp = async () => {
       console.log('正在连接Supabase数据库...')
-      
+
       try {
         const connectionResult = await testConnection()
-        
+
         if (connectionResult.success) {
           console.log('✅ 数据库连接成功')
           setDbConnected(true)
-          
+
           await initAdminSystem()
-          
-          const [clubsResult, pendingResult, usersResult] = await Promise.all([
-            clubService.getAllClubs(),
+
+          const [pendingResult, usersResult] = await Promise.all([
             clubService.getPendingClubs(),
             adminService.getAllUsers()
           ])
-          
-          setClubs(clubsResult.data || [])
+
+          await loadClubsWithMemberCount()
+          await loadAppliedClubs()
+          await loadMemberClubs()
+
           setPendingClubs(pendingResult.data || [])
           setUsers(usersResult.data || [])
           setConnectionError(null)
         } else {
-          console.error('❌ 数据库连接失败:', connectionResult.error)
+          console.error('❌ 数据库连接失败', connectionResult.error)       
           setDbConnected(false)
           setConnectionError(connectionResult.error?.message || '数据库连接失败')
         }
       } catch (error) {
-        console.error('❌ 初始化失败:', error)
+        console.error('❌ 初始化失败', error)
         setDbConnected(false)
         setConnectionError(error.message || '未知错误')
       } finally {
@@ -60,33 +83,35 @@ function App() {
     }
 
     initApp()
-  }, [])
+  }, [loadAppliedClubs, loadMemberClubs])
 
   const handleRetryConnection = async () => {
     setIsLoading(true)
     setConnectionError(null)
-    
+
     try {
       const connectionResult = await testConnection()
-      
+
       if (connectionResult.success) {
         console.log('✅ 数据库连接成功')
         setDbConnected(true)
-        
+
         await initAdminSystem()
-        
-        const [clubsResult, pendingResult, usersResult] = await Promise.all([
-          clubService.getAllClubs(),
+
+        const [pendingResult, usersResult] = await Promise.all([   
           clubService.getPendingClubs(),
           adminService.getAllUsers()
         ])
-        
-        setClubs(clubsResult.data || [])
+
+        await loadClubsWithMemberCount()
+        await loadAppliedClubs()
+        await loadMemberClubs()
+
         setPendingClubs(pendingResult.data || [])
         setUsers(usersResult.data || [])
         setConnectionError(null)
       } else {
-        console.error('❌ 数据库连接失败:', connectionResult.error)
+        console.error('❌ 数据库连接失败', connectionResult.error)        
         setDbConnected(false)
         setConnectionError(connectionResult.error?.message || '数据库连接失败')
       }
@@ -112,11 +137,18 @@ function App() {
       case 'leaderboard':
       case 'admin':
       case 'database':
+      case 'chat':
         setCurrentPage('home')
         break
       default:
         setCurrentPage('welcome')
     }
+  }
+
+  const handleEnterChat = (clubId, clubName) => {
+    setSelectedClubId(clubId)
+    setSelectedClubName(clubName)
+    setCurrentPage('chat')
   }
 
   const handleSelectClub = (clubId) => {
@@ -139,18 +171,18 @@ function App() {
         special_services: clubData.specialServices,
         icon: clubData.icon,
       })
-      
+
       if (result.error) {
-        console.error('创建俱乐部失败:', result.error)
-        throw new Error(result.error.message || '创建失败，请重试')
+        console.error('创建俱乐部失败', result.error)
+        throw new Error(result.error.message || '创建失败，请重试')      
       }
 
       const pendingResult = await clubService.getPendingClubs()
       setPendingClubs(pendingResult.data || [])
-      
+
       return { success: true }
     } catch (error) {
-      console.error('创建俱乐部失败:', error)
+      console.error('创建俱乐部失败', error)
       return { error: { message: error.message } }
     }
   }
@@ -158,17 +190,13 @@ function App() {
   const handleApproveClub = async (clubId) => {
     if (dbConnected) {
       const result = await clubService.approveClub(clubId)
-      
+
       if (result.error) {
         console.error('审核失败:', result.error)
         alert('审核失败，请重试')
       } else {
-        const [clubsResult, pendingResult] = await Promise.all([
-          clubService.getAllClubs(),
-          clubService.getPendingClubs()
-        ])
-        
-        setClubs(clubsResult.data || [])
+        await loadClubsWithMemberCount()
+        const pendingResult = await clubService.getPendingClubs()
         setPendingClubs(pendingResult.data || [])
         alert('俱乐部已通过审核！')
       }
@@ -178,7 +206,7 @@ function App() {
   const handleRejectClub = async (clubId) => {
     if (dbConnected) {
       const result = await clubService.rejectClub(clubId)
-      
+
       if (result.error) {
         console.error('拒绝失败:', result.error)
         alert('拒绝失败，请重试')
@@ -194,13 +222,12 @@ function App() {
     if (dbConnected) {
       if (window.confirm('确定要删除这个俱乐部吗？')) {
         const result = await clubService.deleteClub(clubId)
-        
+
         if (result.error) {
           console.error('删除失败:', result.error)
           alert('删除失败，请重试')
         } else {
-          const clubsResult = await clubService.getAllClubs()
-          setClubs(clubsResult.data || [])
+          await loadClubsWithMemberCount()
           alert('俱乐部已删除')
         }
       }
@@ -212,21 +239,33 @@ function App() {
       if (window.confirm('确定要申请加入该俱乐部吗？')) {
         if (dbConnected) {
           const result = await applicationService.applyToClub(clubId)
-          
+
           if (result.error && !result.alreadyApplied) {
             console.error('申请失败:', result.error)
             alert('申请失败，请重试')
           } else {
             applyToClubHook(clubId)
-            
-            const clubsResult = await clubService.getAllClubs()
-            setClubs(clubsResult.data || [])
-            
-            alert(result.alreadyApplied ? '您已经申请过该俱乐部了' : '申请成功！等待管理员审核')
+            await loadAppliedClubs()
+            await loadClubsWithMemberCount()
+
+            if (result.alreadyApplied) {
+              alert('您已经申请过该俱乐部了')
+            } else {
+              const club = clubs.find(c => c.id === clubId)
+              if (club) {
+                alert(`申请成功！等待管理员审核\n\n审核通过后您将自动进入俱乐部聊天界面`)
+              } else {
+                alert('申请成功！等待管理员审核')
+              }
+            }
           }
         }
       }
     }
+  }
+
+  const handleClubDeleted = async () => {
+    await loadClubsWithMemberCount()
   }
 
   if (isLoading) {
@@ -254,54 +293,54 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            
+
             <h2 className="text-xl font-bold text-white text-center mb-2">数据库连接失败</h2>
             <p className="text-gray-400 text-center mb-6">
-              {connectionError || '无法连接到数据库，请检查配置'}
+              {connectionError || '无法连接到数据库，请检查配置'}      
             </p>
-            
+
             <button
               onClick={handleRetryConnection}
               className="w-full px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-primary-700/30 transition-all mb-6"
             >
               🔄 重新连接数据库
             </button>
-            
+
             <div className="border-t border-white/10 pt-6">
               <h3 className="text-white font-semibold mb-3">📋 解决步骤</h3>
               <ol className="text-gray-400 text-sm space-y-2">
                 <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">1.</span>
+                  <span className="text-primary-400 font-bold">1.</span>          
                   <span>访问 <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:underline">supabase.com/dashboard</a></span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">2.</span>
+                  <span className="text-primary-400 font-bold">2.</span>          
                   <span>创建新的项目或选择现有项目</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">3.</span>
+                  <span className="text-primary-400 font-bold">3.</span>          
                   <span>进入 Settings → API，复制 Project URL 和 Anon Key</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">4.</span>
+                  <span className="text-primary-400 font-bold">4.</span>          
                   <span>更新 <code className="bg-white/10 px-1 rounded">.env</code> 文件中的配置</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">5.</span>
+                  <span className="text-primary-400 font-bold">5.</span>          
                   <span>点击上方按钮重新连接</span>
                 </li>
               </ol>
             </div>
-            
+
             <div className="mt-6 p-4 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
               <p className="text-yellow-400 text-sm">
-                ⚠️ 提示：如果刚刚创建了项目，请等待5-10分钟让DNS生效
+                ⚠️ 提示：如果刚刚创建了项目，请等待5-10分钟 让DNS生效
               </p>
             </div>
-            
+
             <div className="mt-4 p-3 bg-white/5 rounded-lg">
               <p className="text-xs text-gray-500">
-                当前数据库地址: {import.meta.env.VITE_SUPABASE_URL}
+                当前数据库地址: {import.meta.env.VITE_SUPABASE_URL}      
               </p>
             </div>
           </div>
@@ -321,26 +360,29 @@ function App() {
           onSelectClub={handleSelectClub}
           onNavigateToCreate={() => setCurrentPage('create')}
           onNavigateToMy={() => setCurrentPage('my')}
-          onNavigateToNotifications={() => setCurrentPage('notifications')}
+          onNavigateToNotifications={() => setCurrentPage('notifications')}     
           onNavigateToLeaderboard={() => setCurrentPage('leaderboard')}
           onNavigateToAdmin={() => setCurrentPage('admin')}
           onNavigateToDatabase={() => setCurrentPage('database')}
           onQuickJoin={handleQuickJoin}
           isApplied={isApplied}
+          isMember={isMember}
+          canApply={canApply}
           clubsData={clubs}
         />
       )}
       {currentPage === 'detail' && selectedClubId && (
-        <ClubDetail 
-          clubId={selectedClubId} 
+        <ClubDetail
+          clubId={selectedClubId}
           onBack={handleBack}
           onQuickJoin={handleQuickJoin}
           isApplied={isApplied}
+          onClubDeleted={handleClubDeleted}
         />
       )}
       {currentPage === 'create' && (
-        <CreateClub 
-          onBack={handleBack} 
+        <CreateClub
+          onBack={handleBack}
           onSubmit={handleCreateClub}
           onSuccess={() => setCurrentPage('home')}
         />
@@ -352,7 +394,7 @@ function App() {
           clubsData={clubs}
           appliedClubs={appliedClubs}
           onNavigateToCreate={() => setCurrentPage('create')}
-          onNavigateToNotifications={() => setCurrentPage('notifications')}
+          onNavigateToNotifications={() => setCurrentPage('notifications')}     
         />
       )}
       {currentPage === 'notifications' && (
@@ -383,6 +425,13 @@ function App() {
       )}
       {currentPage === 'database' && (
         <DatabaseManager onBack={handleBack} />
+      )}
+      {currentPage === 'chat' && selectedClubId && (
+        <ChatInterface
+          clubId={selectedClubId}
+          clubName={selectedClubName}
+          onBack={handleBack}
+        />
       )}
     </div>
   )

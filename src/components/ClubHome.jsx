@@ -15,6 +15,8 @@ export default function ClubHome({
   onNavigateToDatabase,
   onQuickJoin, 
   isApplied,
+  isMember,
+  canApply,
   clubsData = []
 }) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -32,13 +34,13 @@ export default function ClubHome({
   // 通知数量状态 - 此处已移除假数据，等待接入Supabase真实通知
   const [notificationCount, setNotificationCount] = useState(0)
 
-  // 获取真实通知数量 - 此处已移除假数据，等待接入Supabase真实通知
+  // 获取真实通知数量
   useEffect(() => {
     const fetchNotificationCount = async () => {
       try {
-        const result = await notificationService.getAllNotifications()
+        const result = await notificationService.getNotifications(0, 100)
         if (result.data && result.data.length > 0) {
-          const unreadCount = result.data.filter(n => !n.read && !n.dismissed).length
+          const unreadCount = result.data.filter(n => !n.is_read && !n.dismissed).length
           setNotificationCount(unreadCount)
         } else {
           setNotificationCount(0)
@@ -55,7 +57,7 @@ export default function ClubHome({
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const filteredClubs = useMemo(() => {
-    let result = clubsData
+    let result = Array.isArray(clubsData) ? clubsData.filter(club => club && club.id) : []
     if (debouncedSearch) {
       const query = debouncedSearch.toLowerCase()
       result = result.filter(club =>
@@ -131,7 +133,7 @@ export default function ClubHome({
   }
 
   const handleQuickJoin = (club) => {
-    if (!isApplied(club.id)) {
+    if (canApply && canApply(club.id)) {
       setConfirmDialog({ isOpen: true, club })
     }
   }
@@ -144,6 +146,26 @@ export default function ClubHome({
 
   const handleCancelJoin = () => {
     setConfirmDialog({ isOpen: false, club: null })
+  }
+
+  const getButtonText = (club) => {
+    if (isMember && isMember(club.id)) {
+      return '已加入'
+    }
+    if (isApplied && isApplied(club.id)) {
+      return '已申请'
+    }
+    return '申请加入'
+  }
+
+  const isButtonDisabled = (club) => {
+    if (isMember && isMember(club.id)) {
+      return true
+    }
+    if (isApplied && isApplied(club.id)) {
+      return true
+    }
+    return false
   }
 
   const searchSuggestions = useMemo(() => {
@@ -405,7 +427,7 @@ export default function ClubHome({
                     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                   </svg>
-                  {club.member_count > 0 && <span>{club.member_count}人</span>}
+                  <span>{(typeof club.memberCount === 'number' ? club.memberCount : 0)}人</span>
                 </div>
                 
                 <p className="text-gray-400 text-xs sm:text-sm line-clamp-2 mb-2 sm:mb-3">
@@ -413,11 +435,11 @@ export default function ClubHome({
                 </p>
                 
                 <div className="flex flex-wrap gap-1 sm:gap-1.5 mb-3 sm:mb-4">
-                  {club.special_services?.slice(0, 3).map((tag, i) => (
+                  {Array.isArray(club.special_services) ? club.special_services.slice(0, 3).map((tag, i) => (
                     <span key={i} className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-white/5 text-xs text-gray-300 rounded-full">
                       {tag}
                     </span>
-                  ))}
+                  )) : null}
                 </div>
                 
                 <div className="flex items-center justify-between">
@@ -428,10 +450,10 @@ export default function ClubHome({
                   <Button 
                     size="sm" 
                     onClick={(e) => { e.stopPropagation(); handleQuickJoin(club); }} 
-                    disabled={isApplied(club.id)}
-                    className={isApplied(club.id) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
+                    disabled={isButtonDisabled(club)}
+                    className={isButtonDisabled(club) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
                   >
-                    {isApplied(club.id) ? '已申请' : '申请加入'}
+                    {getButtonText(club)}
                   </Button>
                 </div>
               </Card>

@@ -168,6 +168,15 @@ export const memberService = {
       if (club) {
         await notificationService.createClubJoinedNotification(userId, club.name)
       }
+
+      await supabase.from('member_audit_log').insert([{
+        club_id: clubId,
+        user_id: userId,
+        action: 'join',
+        actor_id: userId,
+        details: JSON.stringify({ role: 'member', joined_at: new Date().toISOString() }),
+        created_at: new Date().toISOString()
+      }])
       
       return { data, error: null }
     } catch (error) {
@@ -176,7 +185,7 @@ export const memberService = {
     }
   },
 
-  async removeMember(clubId, userId) {
+  async removeMember(clubId, userId, actorId = userId) {
     try {
       const { error } = await supabase
         .from('club_members')
@@ -185,6 +194,18 @@ export const memberService = {
         .eq('user_id', userId)
       
       if (error) throw error
+
+      await clubService.decrementMemberCount(clubId)
+
+      await supabase.from('member_audit_log').insert([{
+        club_id: clubId,
+        user_id: userId,
+        action: actorId === userId ? 'leave' : 'kick',
+        actor_id: actorId,
+        details: JSON.stringify({ left_at: new Date().toISOString() }),
+        created_at: new Date().toISOString()
+      }])
+
       return { success: true, error: null }
     } catch (error) {
       console.error('Error removing member:', error)
@@ -196,7 +217,7 @@ export const memberService = {
     try {
       const { data, error } = await supabase
         .from('club_members')
-        .select('*, users(*)')
+        .select('*')
         .eq('club_id', clubId)
         .order('joined_at', { ascending: false })
       
@@ -204,6 +225,21 @@ export const memberService = {
       return { data: data || [], error: null }
     } catch (error) {
       console.error('Error fetching club members:', error)
+      return { data: [], error }
+    }
+  },
+
+  async getMemberClubsByUserId(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('club_members')
+        .select('club_id')
+        .eq('user_id', userId)
+      
+      if (error) throw error
+      return { data: data || [], error: null }
+    } catch (error) {
+      console.error('Error fetching member clubs:', error)
       return { data: [], error }
     }
   },
@@ -278,7 +314,7 @@ export const clubService = {
     }
   },
 
-  async createClub(clubData) {
+  async createClub(clubData, creatorUserId = 'test_user_001') {
     try {
       const { data, error } = await supabase
         .from('clubs')
@@ -290,6 +326,7 @@ export const clubService = {
           price_range: clubData.priceRange || '',
           special_services: clubData.specialServices || [],
           icon_url: clubData.icon || '',
+          created_by: creatorUserId,
           status: 'pending',
           member_count: 1,
           rating: 0,
@@ -300,11 +337,21 @@ export const clubService = {
       
       if (error) throw error
 
+      await supabase
+        .from('club_admins')
+        .insert([{
+          club_id: data.id,
+          user_id: creatorUserId,
+          role: 'creator',
+          appointed_by: 'system',
+          appointed_at: new Date().toISOString()
+        }])
+
       await adminService.createHelperUser()
       
       await memberService.addMember(data.id, HELPER_USER_ID)
       
-      console.log(`✅ 小助手已自动加入俱乐部: ${data.name}`)
+      console.log(`✅ 俱乐部创建成功: ${data.name}, 创建者: ${creatorUserId}`)
       
       return { data, error: null }
     } catch (error) {
@@ -366,7 +413,11 @@ export const clubService = {
 
   async deleteClub(id) {
     try {
+      await supabase.from('member_audit_log').delete().eq('club_id', id)
+      await supabase.from('applications').delete().eq('club_id', id)
       await supabase.from('club_members').delete().eq('club_id', id)
+      await supabase.from('club_admins').delete().eq('club_id', id)
+      await supabase.from('reviews').delete().eq('club_id', id)
       
       const { error } = await supabase
         .from('clubs')
@@ -374,10 +425,10 @@ export const clubService = {
         .eq('id', id)
       
       if (error) throw error
-      return { success: true, error: null }
+      return { success: true, deletedClubId: id, error: null }
     } catch (error) {
       console.error('Error deleting club:', error)
-      return { success: false, error }
+      return { success: false, error: error.message }
     }
   },
 
@@ -464,8 +515,6 @@ export const applicationService = {
       
       if (error) throw error
       
-      await clubService.incrementMemberCount(clubId)
-      
       return { data, error: null }
     } catch (error) {
       console.error('Error applying to club:', error)
@@ -514,9 +563,20 @@ export const applicationService = {
       if (existingApp.clubs) {
         const clubName = existingApp.clubs.name
         const userId = existingApp.user_id
+        const clubId = existingApp.club_id
         
         if (status === 'approved') {
           await notificationService.createApplicationApprovedNotification(userId, clubName)
+          
+          await supabase
+            .from('club_members')
+            .upsert({
+              club_id: clubId,
+              user_id: userId,
+              role: 'member',
+              joined_at: new Date().toISOString()
+            })
+            .select()
         } else if (status === 'rejected') {
           await notificationService.createApplicationRejectedNotification(userId, clubName)
         }
@@ -543,6 +603,38 @@ export const applicationService = {
     } catch (error) {
       console.error('Error checking application status:', error)
       return { isApplied: false, error }
+    }
+  },
+
+  async getPendingApplications() {
+    try {
+      const { data, error } = await supabase
+        .from('applications')
+        .select('*, clubs(*)')
+        .eq('status', 'pending')
+        .order('applied_at', { ascending: false })
+      
+      if (error) throw error
+      return { data: data || [], error: null }
+    } catch (error) {
+      console.error('Error fetching pending applications:', error)
+      return { data: [], error }
+    }
+  },
+
+  async getApplicationsByClub(clubId) {
+    try {
+      const { data, error } = await supabase
+        .from('applications')
+        .select('*, clubs(*)')
+        .eq('club_id', clubId)
+        .order('applied_at', { ascending: false })
+      
+      if (error) throw error
+      return { data: data || [], error: null }
+    } catch (error) {
+      console.error('Error fetching applications by club:', error)
+      return { data: [], error }
     }
   },
 }
