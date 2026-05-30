@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { gameTags } from '../data/clubs'
 import { useDebounce } from '../hooks'
-import { Card, Button, Avatar, EmptyState, Skeleton, ConfirmDialog } from './ui'
-import { notificationService } from '../services/notificationService'
+import { Card, Button, Avatar, EmptyState, Skeleton } from './ui'
+import { notificationService } from '../services/localDataService'
+import StarRating from './StarRating'
 
 export default function ClubHome({ 
   onBack, 
@@ -13,11 +14,17 @@ export default function ClubHome({
   onNavigateToLeaderboard, 
   onNavigateToAdmin, 
   onNavigateToDatabase,
+  onNavigateToClaude,
   onQuickJoin, 
+  onEnterChat,
+  onEditClub,
   isApplied,
+  isRejected,
   isMember,
   canApply,
-  clubsData = []
+  canReapply,
+  clubsData = [],
+  isAdmin = false
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchFocused, setIsSearchFocused] = useState(false)
@@ -30,11 +37,9 @@ export default function ClubHome({
   const categoryTabsRef = useRef(null)
   const [showScrollLeft, setShowScrollLeft] = useState(false)
   const [showScrollRight, setShowScrollRight] = useState(false)
-  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, club: null })
-  // 通知数量状态 - 此处已移除假数据，等待接入Supabase真实通知
+  const [joiningClubId, setJoiningClubId] = useState(null)
   const [notificationCount, setNotificationCount] = useState(0)
 
-  // 获取真实通知数量
   useEffect(() => {
     const fetchNotificationCount = async () => {
       try {
@@ -105,67 +110,71 @@ export default function ClubHome({
       if (categoryTabsRef.current) {
         const { scrollLeft, scrollWidth, clientWidth } = categoryTabsRef.current
         setShowScrollLeft(scrollLeft > 0)
-        setShowScrollRight(scrollLeft < scrollWidth - clientWidth - 10)
+        setShowScrollRight(scrollLeft + clientWidth < scrollWidth - 1)
       }
     }
     checkScroll()
-    const interval = setInterval(checkScroll, 300)
+    const interval = setInterval(checkScroll, 500)
     return () => clearInterval(interval)
   }, [])
 
   const scrollTabs = (direction) => {
     if (categoryTabsRef.current) {
-      const scrollAmount = window.innerWidth < 768 ? 150 : 250
-      categoryTabsRef.current.scrollBy({
-        left: direction === 'left' ? -scrollAmount : scrollAmount,
-        behavior: 'smooth'
-      })
+      const scrollAmount = direction === 'left' ? -200 : 200
+      categoryTabsRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' })
     }
   }
 
-  const handleSelectTag = (tag) => {
-    setSelectedTag(tag)
+  const handleSelectTag = (tagKey) => {
+    setSelectedTag(tagKey)
     setVisibleCount(8)
   }
 
   const handleNavigateToClub = (club) => {
-    onSelectClub(club.id)
-  }
-
-  const handleQuickJoin = (club) => {
-    if (canApply && canApply(club.id)) {
-      setConfirmDialog({ isOpen: true, club })
+    if (onSelectClub) {
+      onSelectClub(club.id)
     }
   }
 
-  const handleConfirmJoin = () => {
-    if (confirmDialog.club) {
-      onQuickJoin(confirmDialog.club.id)
+  const handleQuickJoin = async (club) => {
+    if ((canApply && canApply(club.id) || canReapply && canReapply(club.id)) && joiningClubId !== club.id) {
+      setJoiningClubId(club.id)
+      try {
+        await onQuickJoin(club.id)
+      } finally {
+        setJoiningClubId(null)
+      }
     }
-  }
-
-  const handleCancelJoin = () => {
-    setConfirmDialog({ isOpen: false, club: null })
   }
 
   const getButtonText = (club) => {
     if (isMember && isMember(club.id)) {
-      return '已加入'
+      return '进入聊天'
     }
     if (isApplied && isApplied(club.id)) {
       return '已申请'
+    }
+    if (isRejected && isRejected(club.id)) {
+      return '已被拒绝'
     }
     return '申请加入'
   }
 
   const isButtonDisabled = (club) => {
-    if (isMember && isMember(club.id)) {
-      return true
-    }
     if (isApplied && isApplied(club.id)) {
       return true
     }
     return false
+  }
+
+  const getButtonVariant = (club) => {
+    if (isRejected && isRejected(club.id)) {
+      return 'secondary'
+    }
+    if (isMember && isMember(club.id)) {
+      return 'secondary'
+    }
+    return 'primary'
   }
 
   const searchSuggestions = useMemo(() => {
@@ -192,71 +201,77 @@ export default function ClubHome({
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
-              <span className="hidden sm:inline">返回</span>
             </button>
-            
-            <div className="flex items-center gap-1 sm:gap-2">
+            <button
+              onClick={onNavigateToMy}
+              className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors"
+              aria-label="我的"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </button>
+            <button
+              onClick={onNavigateToNotifications}
+              className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors relative"
+              title="消息通知"
+              aria-label="消息通知"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+              {notificationCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                  {notificationCount > 9 ? '9+' : notificationCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={onNavigateToLeaderboard}
+              className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+              title="排行榜"
+              aria-label="排行榜"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M8 21V10M12 21V3M16 21V14" />
+              </svg>
+            </button>
+            <button
+              onClick={onNavigateToAdmin}
+              className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+              title="管理后台"
+              aria-label="管理后台"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+            <button
+              onClick={onNavigateToDatabase}
+              className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
+              title="数据库管理"
+              aria-label="数据库管理"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+            </button>
+            {onNavigateToClaude && (
               <button
-                onClick={onNavigateToMy}
-                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors"
-                title="个人中心"
-                aria-label="个人中心"
+                onClick={onNavigateToClaude}
+                className="p-2 sm:p-2.5 text-gray-400 hover:text-orange-400 transition-colors"
+                title="Claude AI"
+                aria-label="Claude AI"
               >
                 <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
+                  <path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-5l-5 5v-5z" />
                 </svg>
               </button>
-              <button
-                onClick={onNavigateToNotifications}
-                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors relative"
-                title="消息通知"
-                aria-label="消息通知"
-              >
-                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-                {/* 通知数量 - 此处已移除假数据，等待接入Supabase真实通知 */}
-                {notificationCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                    {notificationCount > 9 ? '9+' : notificationCount}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={onNavigateToLeaderboard}
-                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
-                title="排行榜"
-                aria-label="排行榜"
-              >
-                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M8 21V10M12 21V3M16 21V14" />
-                </svg>
-              </button>
-              <button
-                onClick={onNavigateToAdmin}
-                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
-                title="管理后台"
-                aria-label="管理后台"
-              >
-                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-              <button
-                onClick={onNavigateToDatabase}
-                className="p-2 sm:p-2.5 text-gray-400 hover:text-white transition-colors hidden sm:block"
-                title="数据库管理"
-                aria-label="数据库管理"
-              >
-                <svg className="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-              </button>
-            </div>
+            )}
           </div>
           
           <h1 className="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4">陪玩俱乐部</h1>
@@ -389,7 +404,6 @@ export default function ClubHome({
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-dark-300 via-transparent to-transparent" />
-                  {/* 官方徽章 */}
                   {club.is_official && (
                     <div className="absolute top-2 sm:top-3 right-2 sm:right-3 z-10">
                       <div className="relative">
@@ -403,7 +417,6 @@ export default function ClubHome({
                       </div>
                     </div>
                   )}
-                  {/* 游戏标签 */}
                   <div className={`absolute top-2 sm:top-3 ${club.is_official ? 'left-2 sm:left-3' : 'right-2 sm:right-3'} px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-xs font-bold ${
                     club.game === '王者荣耀' ? 'bg-gradient-to-r from-yellow-500/90 to-yellow-600/90 text-black' :
                     club.game === '光遇' ? 'bg-gradient-to-r from-sky-400/90 to-sky-500/90 text-black' :
@@ -430,6 +443,10 @@ export default function ClubHome({
                   <span>{(typeof club.memberCount === 'number' ? club.memberCount : 0)}人</span>
                 </div>
                 
+                <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                  <StarRating rating={club.rating || 0} size="sm" />
+                </div>
+                
                 <p className="text-gray-400 text-xs sm:text-sm line-clamp-2 mb-2 sm:mb-3">
                   {club.description}
                 </p>
@@ -442,19 +459,65 @@ export default function ClubHome({
                   )) : null}
                 </div>
                 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="text-xs sm:text-sm text-gray-400">活跃中</span>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    onClick={(e) => { e.stopPropagation(); handleQuickJoin(club); }} 
-                    disabled={isButtonDisabled(club)}
-                    className={isButtonDisabled(club) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
-                  >
-                    {getButtonText(club)}
-                  </Button>
+                <div className="space-y-2">
+                  {isRejected && isRejected(club.id) && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2 text-center">
+                      <span className="text-red-400 text-sm font-medium">已被拒绝加入该俱乐部</span>
+                      <Button 
+                        size="sm" 
+                        variant="secondary"
+                        onClick={(e) => { e.stopPropagation(); handleQuickJoin(club); }} 
+                        loading={joiningClubId === club.id}
+                        className="w-full mt-2"
+                      >
+                        请重新申请
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {(!isRejected || !isRejected(club.id)) && (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse" />
+                        <span className="text-xs sm:text-sm text-gray-400">活跃中</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isAdmin && onEditClub && (
+                          <Button 
+                            size="sm" 
+                            variant="secondary"
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              onEditClub(club); 
+                            }} 
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                            编辑
+                          </Button>
+                        )}
+                        <Button 
+                          size="sm" 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (isMember && isMember(club.id)) {
+                              onEnterChat(club.id, club.name);
+                            } else {
+                              handleQuickJoin(club); 
+                            }
+                          }} 
+                          disabled={isButtonDisabled(club) || joiningClubId === club.id}
+                          className={isButtonDisabled(club) && !(isRejected && isRejected(club.id)) && !(isMember && isMember(club.id)) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
+                          loading={joiningClubId === club.id}
+                          variant={getButtonVariant(club)}
+                        >
+                          {getButtonText(club)}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
             ))}
@@ -492,13 +555,6 @@ export default function ClubHome({
         </Button>
       </div>
 
-      <ConfirmDialog
-        isOpen={confirmDialog.isOpen}
-        onClose={handleCancelJoin}
-        title="申请加入俱乐部"
-        message={confirmDialog.club ? `确定要申请加入「${confirmDialog.club.name}」吗？` : ''}
-        onConfirm={handleConfirmJoin}
-      />
-    </div>
+      </div>
   )
 }

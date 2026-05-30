@@ -15,12 +15,14 @@ CREATE INDEX idx_reviews_club_id ON reviews(club_id);
 CREATE INDEX idx_reviews_user_id ON reviews(user_id);
 CREATE INDEX idx_reviews_rating ON reviews(rating);
 
--- 允许匿名用户访问
+-- 启用 RLS
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public read" ON reviews FOR SELECT USING (true);
-CREATE POLICY "Allow public insert" ON reviews FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update" ON reviews FOR UPDATE USING (true);
+-- 安全的 RLS 策略
+CREATE POLICY allow_public_read_reviews ON reviews FOR SELECT USING (true);
+CREATE POLICY authenticated_users_create_reviews ON reviews FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY authenticated_users_update_own_reviews ON reviews FOR UPDATE USING (auth.uid()::text = user_id) WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY authenticated_users_delete_own_reviews ON reviews FOR DELETE USING (auth.uid()::text = user_id);
 
 -- 更新 clubs 表的 rating 字段（如果不存在）
 DO $$ 
@@ -36,22 +38,36 @@ END $$;
 -- 创建函数：更新俱乐部评分
 CREATE OR REPLACE FUNCTION update_club_rating()
 RETURNS TRIGGER AS $$
+DECLARE
+  target_club_id BIGINT;
 BEGIN
+  -- 确定要更新的俱乐部 ID
+  IF TG_OP = 'DELETE' THEN
+    target_club_id = OLD.club_id;
+  ELSE
+    target_club_id = NEW.club_id;
+  END IF;
+
+  -- 更新俱乐部评分和评价数量
   UPDATE clubs
   SET 
     rating = (
       SELECT COALESCE(ROUND(AVG(rating)::numeric, 1), 0)
       FROM reviews
-      WHERE club_id = NEW.club_id
+      WHERE club_id = target_club_id
     ),
     review_count = (
       SELECT COUNT(*)
       FROM reviews
-      WHERE club_id = NEW.club_id
+      WHERE club_id = target_club_id
     )
-  WHERE id = NEW.club_id;
+  WHERE id = target_club_id;
   
-  RETURN NEW;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
 $$ LANGUAGE plpgsql;
 

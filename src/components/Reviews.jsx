@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { reviewService } from '../services/reviewService';
+import { reviewService } from '../services/localDataService';
 import { Button } from './ui';
 
 const StarRating = ({ rating, onChange, readonly = false, size = 'md' }) => {

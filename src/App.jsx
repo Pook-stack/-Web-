@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useClubApplications } from './hooks'
-import { clubService, applicationService, adminService, memberService, testConnection, initAdminSystem } from './services/supabase'
-import { adminManagementService } from './services/adminManagementService'
+import { clubService, applicationService, memberService, adminService, testConnection, initAdminSystem, initializeLocalData } from './services/localDataService'
+import { adminManagementService } from './services/localDataService'
+import { getUserId, initUserProfile, getLocalProfile, updateLocalProfile } from './services/userIdentity'
 import WelcomePage from './components/WelcomePage'
 import ClubHome from './components/ClubHome'
 import ClubDetail from './components/ClubDetail'
@@ -10,8 +11,8 @@ import MyProfile from './components/MyProfile'
 import Notifications from './components/Notifications'
 import Leaderboard from './components/Leaderboard'
 import AdminDashboard from './components/AdminDashboard'
-import DatabaseManager from './components/DatabaseManager'
-import ChatInterface from './components/ChatInterface'
+import ChatSelector from './components/ChatSelector'
+import ClaudeChat from './components/ClaudeChat'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
@@ -20,10 +21,24 @@ function App() {
   const [clubs, setClubs] = useState([])
   const [pendingClubs, setPendingClubs] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-  const [dbConnected, setDbConnected] = useState(false)
-  const [connectionError, setConnectionError] = useState(null)
   const [users, setUsers] = useState([])
-  const { appliedClubs, memberClubs, isApplied, isMember, canApply, applyToClub: applyToClubHook, joinClub, loadAppliedClubs, loadMemberClubs } = useClubApplications()
+  const [localProfile, setLocalProfile] = useState(null)
+  const currentUserId = getUserId()
+
+  const {
+    appliedClubs,
+    memberClubs,
+    rejectedClubs,
+    isApplied,
+    isRejected,
+    isMember,
+    canApply,
+    canReapply,
+    applyToClub: applyToClubHook,
+    joinClub,
+    loadAppliedClubs,
+    loadMemberClubs
+  } = useClubApplications()
 
   const loadClubsWithMemberCount = async () => {
     const result = await clubService.getAllClubs()
@@ -45,220 +60,127 @@ function App() {
 
   useEffect(() => {
     const initApp = async () => {
-      console.log('正在连接Supabase数据库...')
-
       try {
-        const connectionResult = await testConnection()
+        // seed official clubs if needed
+        await initializeLocalData()
+        const profile = initUserProfile()
+        setLocalProfile(profile)
 
-        if (connectionResult.success) {
-          console.log('✅ 数据库连接成功')
-          setDbConnected(true)
-
-          await initAdminSystem()
-
-          const [pendingResult, usersResult] = await Promise.all([
-            clubService.getPendingClubs(),
-            adminService.getAllUsers()
-          ])
-
-          await loadClubsWithMemberCount()
-          await loadAppliedClubs()
-          await loadMemberClubs()
-
-          setPendingClubs(pendingResult.data || [])
-          setUsers(usersResult.data || [])
-          setConnectionError(null)
-        } else {
-          console.error('❌ 数据库连接失败', connectionResult.error)       
-          setDbConnected(false)
-          setConnectionError(connectionResult.error?.message || '数据库连接失败')
-        }
+        await initAdminSystem()
+        const [pendingResult, usersResult] = await Promise.all([
+          clubService.getPendingClubs(),
+          adminService.getAllUsers()
+        ])
+        await loadClubsWithMemberCount()
+        await loadAppliedClubs()
+        await loadMemberClubs()
+        setPendingClubs(pendingResult.data || [])
+        setUsers(usersResult.data || [])
       } catch (error) {
-        console.error('❌ 初始化失败', error)
-        setDbConnected(false)
-        setConnectionError(error.message || '未知错误')
+        console.error('初始化失败', error)
       } finally {
         setIsLoading(false)
       }
     }
-
     initApp()
   }, [loadAppliedClubs, loadMemberClubs])
-
-  const handleRetryConnection = async () => {
-    setIsLoading(true)
-    setConnectionError(null)
-
-    try {
-      const connectionResult = await testConnection()
-
-      if (connectionResult.success) {
-        console.log('✅ 数据库连接成功')
-        setDbConnected(true)
-
-        await initAdminSystem()
-
-        const [pendingResult, usersResult] = await Promise.all([   
-          clubService.getPendingClubs(),
-          adminService.getAllUsers()
-        ])
-
-        await loadClubsWithMemberCount()
-        await loadAppliedClubs()
-        await loadMemberClubs()
-
-        setPendingClubs(pendingResult.data || [])
-        setUsers(usersResult.data || [])
-        setConnectionError(null)
-      } else {
-        console.error('❌ 数据库连接失败', connectionResult.error)        
-        setDbConnected(false)
-        setConnectionError(connectionResult.error?.message || '数据库连接失败')
-      }
-    } catch (error) {
-      console.error('❌ 连接重试失败:', error)
-      setDbConnected(false)
-      setConnectionError(error.message || '未知错误')
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const handleEnter = () => {
     setCurrentPage('home')
   }
 
   const handleBack = () => {
-    switch (currentPage) {
-      case 'detail':
-      case 'create':
-      case 'my':
-      case 'notifications':
-      case 'leaderboard':
-      case 'admin':
-      case 'database':
-      case 'chat':
-        setCurrentPage('home')
-        break
-      default:
-        setCurrentPage('welcome')
+    if (currentPage === 'detail' || currentPage === 'chat' || currentPage === 'claude-chat') {
+      setCurrentPage('home')
+      setSelectedClubId(null)
+      setSelectedClubName('')
+    } else {
+      setCurrentPage('home')
+    }
+  }
+
+  const handleSelectClub = (clubId) => {
+    const club = clubs.find(c => c.id === clubId)
+    if (club) {
+      setSelectedClubId(clubId)
+      setSelectedClubName(club.name)
+      setCurrentPage('detail')
     }
   }
 
   const handleEnterChat = (clubId, clubName) => {
-    setSelectedClubId(clubId)
-    setSelectedClubName(clubName)
-    setCurrentPage('chat')
-  }
-
-  const handleSelectClub = (clubId) => {
-    setSelectedClubId(clubId)
-    setCurrentPage('detail')
-  }
-
-  const handleCreateClub = async (clubData) => {
-    try {
-      if (!dbConnected) {
-        throw new Error('数据库未连接，请先修复连接问题')
-      }
-
-      const result = await clubService.createClub({
-        name: clubData.name,
-        game: clubData.game,
-        description: clubData.description,
-        contact: clubData.contact,
-        price_range: clubData.priceRange,
-        special_services: clubData.specialServices,
-        icon: clubData.icon,
-      })
-
-      if (result.error) {
-        console.error('创建俱乐部失败', result.error)
-        throw new Error(result.error.message || '创建失败，请重试')      
-      }
-
-      const pendingResult = await clubService.getPendingClubs()
-      setPendingClubs(pendingResult.data || [])
-
-      return { success: true }
-    } catch (error) {
-      console.error('创建俱乐部失败', error)
-      return { error: { message: error.message } }
+    if (isMember(clubId)) {
+      setSelectedClubId(clubId)
+      setSelectedClubName(clubName)
+      setCurrentPage('chat')
+    } else {
+      alert('您还不是该俱乐部成员，请先申请加入并等待管理员审核通过')
     }
   }
 
-  const handleApproveClub = async (clubId) => {
-    if (dbConnected) {
-      const result = await clubService.approveClub(clubId)
+  const handleCreateClub = async (clubData) => {
+    const result = await clubService.createClub({
+      ...clubData,
+      status: 'pending'
+    })
+    if (result.error) {
+      return { success: false, error: result.error }
+    }
+    await loadClubsWithMemberCount()
+    const pendingResult = await clubService.getPendingClubs()
+    setPendingClubs(pendingResult.data || [])
+    return { success: true }
+  }
 
-      if (result.error) {
-        console.error('审核失败:', result.error)
-        alert('审核失败，请重试')
-      } else {
-        await loadClubsWithMemberCount()
-        const pendingResult = await clubService.getPendingClubs()
-        setPendingClubs(pendingResult.data || [])
-        alert('俱乐部已通过审核！')
-      }
+  const handleApproveClub = async (clubId) => {
+    const result = await clubService.approveClub(clubId)
+    if (result.error) {
+      alert('审核失败，请重试')
+    } else {
+      await loadClubsWithMemberCount()
+      const pendingResult = await clubService.getPendingClubs()
+      setPendingClubs(pendingResult.data || [])
+      alert('俱乐部已通过审核！')
     }
   }
 
   const handleRejectClub = async (clubId) => {
-    if (dbConnected) {
-      const result = await clubService.rejectClub(clubId)
-
-      if (result.error) {
-        console.error('拒绝失败:', result.error)
-        alert('拒绝失败，请重试')
-      } else {
-        const pendingResult = await clubService.getPendingClubs()
-        setPendingClubs(pendingResult.data || [])
-        alert('已拒绝该申请')
-      }
+    const result = await clubService.rejectClub(clubId)
+    if (result.error) {
+      alert('拒绝失败，请重试')
+    } else {
+      const pendingResult = await clubService.getPendingClubs()
+      setPendingClubs(pendingResult.data || [])
+      alert('已拒绝该申请')
     }
   }
 
   const handleDeleteClub = async (clubId) => {
-    if (dbConnected) {
-      if (window.confirm('确定要删除这个俱乐部吗？')) {
-        const result = await clubService.deleteClub(clubId)
-
-        if (result.error) {
-          console.error('删除失败:', result.error)
-          alert('删除失败，请重试')
-        } else {
-          await loadClubsWithMemberCount()
-          alert('俱乐部已删除')
-        }
+    if (window.confirm('确定要删除这个俱乐部吗？')) {
+      const result = await clubService.deleteClub(clubId)
+      if (result.error) {
+        alert('删除失败，请重试')
+      } else {
+        await loadClubsWithMemberCount()
+        alert('俱乐部已删除')
       }
     }
   }
 
   const handleQuickJoin = async (clubId) => {
-    if (!isApplied(clubId)) {
-      if (window.confirm('确定要申请加入该俱乐部吗？')) {
-        if (dbConnected) {
-          const result = await applicationService.applyToClub(clubId)
-
-          if (result.error && !result.alreadyApplied) {
-            console.error('申请失败:', result.error)
-            alert('申请失败，请重试')
-          } else {
-            applyToClubHook(clubId)
-            await loadAppliedClubs()
-            await loadClubsWithMemberCount()
-
-            if (result.alreadyApplied) {
-              alert('您已经申请过该俱乐部了')
-            } else {
-              const club = clubs.find(c => c.id === clubId)
-              if (club) {
-                alert(`申请成功！等待管理员审核\n\n审核通过后您将自动进入俱乐部聊天界面`)
-              } else {
-                alert('申请成功！等待管理员审核')
-              }
-            }
-          }
+    if (!isApplied(clubId) && !isRejected(clubId)) {
+      const result = await applicationService.applyToClub(clubId, currentUserId)
+      if (result.error && !result.alreadyApplied) {
+        alert('申请失败，请重试')
+      } else {
+        applyToClubHook(clubId)
+        await loadAppliedClubs()
+        await loadClubsWithMemberCount()
+        if (result.alreadyApplied) {
+          alert('您已经申请过该俱乐部了')
+        } else {
+          const club = clubs.find(c => c.id === clubId)
+          alert(club ? `申请成功！等待管理员审核\n\n审核通过后您将自动进入俱乐部聊天界面` : '申请成功！等待管理员审核')
         }
       }
     }
@@ -274,76 +196,8 @@ function App() {
         <div className="text-center">
           <div className="relative w-16 h-16 mx-auto mb-4">
             <div className="w-full h-full border-4 border-primary-700 border-t-transparent rounded-full animate-spin" />
-            <div className="absolute inset-0 w-full h-full border-4 border-primary-700/30 border-t-transparent rounded-full animate-spin" style={{ animationDelay: '0.2s' }} />
           </div>
-          <p className="text-white text-lg">正在连接数据库...</p>
-          <p className="text-gray-400 text-sm mt-2">请稍候...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!dbConnected) {
-    return (
-      <div className="min-h-screen min-h-dvh bg-gradient-to-b from-dark-300 to-dark-200 p-4">
-        <div className="max-w-md w-full mx-auto mt-12">
-          <div className="bg-white/5 rounded-2xl p-6">
-            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-500/20 flex items-center justify-center">
-              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-
-            <h2 className="text-xl font-bold text-white text-center mb-2">数据库连接失败</h2>
-            <p className="text-gray-400 text-center mb-6">
-              {connectionError || '无法连接到数据库，请检查配置'}      
-            </p>
-
-            <button
-              onClick={handleRetryConnection}
-              className="w-full px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-primary-700/30 transition-all mb-6"
-            >
-              🔄 重新连接数据库
-            </button>
-
-            <div className="border-t border-white/10 pt-6">
-              <h3 className="text-white font-semibold mb-3">📋 解决步骤</h3>
-              <ol className="text-gray-400 text-sm space-y-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">1.</span>          
-                  <span>访问 <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:underline">supabase.com/dashboard</a></span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">2.</span>          
-                  <span>创建新的项目或选择现有项目</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">3.</span>          
-                  <span>进入 Settings → API，复制 Project URL 和 Anon Key</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">4.</span>          
-                  <span>更新 <code className="bg-white/10 px-1 rounded">.env</code> 文件中的配置</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary-400 font-bold">5.</span>          
-                  <span>点击上方按钮重新连接</span>
-                </li>
-              </ol>
-            </div>
-
-            <div className="mt-6 p-4 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
-              <p className="text-yellow-400 text-sm">
-                ⚠️ 提示：如果刚刚创建了项目，请等待5-10分钟 让DNS生效
-              </p>
-            </div>
-
-            <div className="mt-4 p-3 bg-white/5 rounded-lg">
-              <p className="text-xs text-gray-500">
-                当前数据库地址: {import.meta.env.VITE_SUPABASE_URL}      
-              </p>
-            </div>
-          </div>
+          <p className="text-white text-lg">正在加载...</p>
         </div>
       </div>
     )
@@ -354,23 +208,28 @@ function App() {
       {currentPage === 'welcome' && (
         <WelcomePage onEnter={handleEnter} />
       )}
+
       {currentPage === 'home' && (
         <ClubHome
           onBack={handleBack}
           onSelectClub={handleSelectClub}
           onNavigateToCreate={() => setCurrentPage('create')}
           onNavigateToMy={() => setCurrentPage('my')}
-          onNavigateToNotifications={() => setCurrentPage('notifications')}     
+          onNavigateToNotifications={() => setCurrentPage('notifications')}
           onNavigateToLeaderboard={() => setCurrentPage('leaderboard')}
           onNavigateToAdmin={() => setCurrentPage('admin')}
-          onNavigateToDatabase={() => setCurrentPage('database')}
+          onNavigateToClaude={() => setCurrentPage('claude-chat')}
           onQuickJoin={handleQuickJoin}
+          onEnterChat={handleEnterChat}
           isApplied={isApplied}
+          isRejected={isRejected}
           isMember={isMember}
           canApply={canApply}
+          canReapply={canReapply}
           clubsData={clubs}
         />
       )}
+
       {currentPage === 'detail' && selectedClubId && (
         <ClubDetail
           clubId={selectedClubId}
@@ -378,8 +237,10 @@ function App() {
           onQuickJoin={handleQuickJoin}
           isApplied={isApplied}
           onClubDeleted={handleClubDeleted}
+          onEnterChat={handleEnterChat}
         />
       )}
+
       {currentPage === 'create' && (
         <CreateClub
           onBack={handleBack}
@@ -387,16 +248,19 @@ function App() {
           onSuccess={() => setCurrentPage('home')}
         />
       )}
+
       {currentPage === 'my' && (
         <MyProfile
           onBack={handleBack}
           onSelectClub={handleSelectClub}
+          onEnterChat={handleEnterChat}
+          onNavigateToCreate={() => setCurrentPage('create')}
+          onNavigateToNotifications={() => setCurrentPage('notifications')}
           clubsData={clubs}
           appliedClubs={appliedClubs}
-          onNavigateToCreate={() => setCurrentPage('create')}
-          onNavigateToNotifications={() => setCurrentPage('notifications')}     
         />
       )}
+
       {currentPage === 'notifications' && (
         <Notifications
           onBack={handleBack}
@@ -404,6 +268,7 @@ function App() {
           clubsData={clubs}
         />
       )}
+
       {currentPage === 'leaderboard' && (
         <Leaderboard
           onBack={handleBack}
@@ -411,6 +276,7 @@ function App() {
           clubsData={clubs}
         />
       )}
+
       {currentPage === 'admin' && (
         <AdminDashboard
           onBack={handleBack}
@@ -423,15 +289,17 @@ function App() {
           onDeleteClub={handleDeleteClub}
         />
       )}
-      {currentPage === 'database' && (
-        <DatabaseManager onBack={handleBack} />
-      )}
+
       {currentPage === 'chat' && selectedClubId && (
-        <ChatInterface
+        <ChatSelector
           clubId={selectedClubId}
           clubName={selectedClubName}
           onBack={handleBack}
         />
+      )}
+
+      {currentPage === 'claude-chat' && (
+        <ClaudeChat onBack={handleBack} />
       )}
     </div>
   )

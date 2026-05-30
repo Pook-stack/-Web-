@@ -1,18 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { applicationService, memberService } from '../services/supabase';
+import { applicationService, memberService } from '../services/localDataService';
+import { getUserId } from '../services/userIdentity';
 
 export const useClubApplications = () => {
   const [appliedClubs, setAppliedClubs] = useState([]);
   const [memberClubs, setMemberClubs] = useState([]);
+  const [rejectedClubs, setRejectedClubs] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
   const loadAppliedClubs = useCallback(async () => {
     try {
-      const result = await applicationService.getUserApplications('anonymous');
+      const result = await applicationService.getUserApplications(getUserId());
       if (result.data) {
-        const clubIds = result.data.map(app => app.club_id);
-        setAppliedClubs(clubIds);
+        const pending = result.data
+          .filter(app => app.status === 'pending')
+          .map(app => app.club_id);
+        const rejected = result.data
+          .filter(app => app.status === 'rejected')
+          .map(app => app.club_id);
+
+        setAppliedClubs(pending);
+        setRejectedClubs(rejected);
       }
     } catch (error) {
       console.error('Failed to load applications:', error);
@@ -23,7 +32,7 @@ export const useClubApplications = () => {
 
   const loadMemberClubs = useCallback(async () => {
     try {
-      const result = await memberService.getMemberClubsByUserId('anonymous');
+      const result = await memberService.getMemberClubsByUserId(getUserId());
       if (result.data) {
         const clubIds = result.data.map(member => member.club_id);
         setMemberClubs(clubIds);
@@ -37,13 +46,21 @@ export const useClubApplications = () => {
     return appliedClubs.includes(clubId);
   }, [appliedClubs]);
 
+  const isRejected = useCallback((clubId) => {
+    return rejectedClubs.includes(clubId);
+  }, [rejectedClubs]);
+
   const isMember = useCallback((clubId) => {
     return memberClubs.includes(clubId);
   }, [memberClubs]);
 
   const canApply = useCallback((clubId) => {
-    return !isApplied(clubId) && !isMember(clubId);
-  }, [isApplied, isMember]);
+    return !isApplied(clubId) && !isMember(clubId) && !isRejected(clubId);
+  }, [isApplied, isMember, isRejected]);
+
+  const canReapply = useCallback((clubId) => {
+    return isRejected(clubId);
+  }, [isRejected]);
 
   const applyToClub = useCallback(async (clubId) => {
     if (isApplying) return;
@@ -51,10 +68,11 @@ export const useClubApplications = () => {
     setIsApplying(true);
     
     try {
-      const result = await applicationService.applyToClub(clubId, 'anonymous');
+      const result = await applicationService.applyToClub(clubId, getUserId());
       
       if (result.data && !result.alreadyApplied) {
         setAppliedClubs(prev => [...prev, clubId]);
+        setRejectedClubs(prev => prev.filter(id => id !== clubId));
       }
     } catch (error) {
       console.error('Failed to apply to club:', error);
@@ -73,9 +91,7 @@ export const useClubApplications = () => {
 
   const joinClub = useCallback(async (clubId) => {
     try {
-      // 将俱乐部添加到成员列表
       setMemberClubs(prev => [...prev, clubId]);
-      // 从申请列表中移除
       setAppliedClubs(prev => prev.filter(id => id !== clubId));
     } catch (error) {
       console.error('Failed to join club:', error);
@@ -90,9 +106,12 @@ export const useClubApplications = () => {
   return {
     appliedClubs,
     memberClubs,
+    rejectedClubs,
     isApplied,
+    isRejected,
     isMember,
     canApply,
+    canReapply,
     applyToClub,
     removeApplication,
     joinClub,

@@ -1,20 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button } from './ui';
 import { chatService, memberService, adminManagementService } from '../services/localDataService'
+import { getUserId } from '../services/userIdentity'
 
-const CURRENT_USER_ID = 'anonymous';
+const CURRENT_USER_ID = getUserId()
 
-export default function ChatInterface({ clubId, clubName, onBack }) {
+export default function PublicChat({ clubId, clubName, onBack }) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [isJoining, setIsJoining] = useState(true);
   const [joinedSuccessfully, setJoinedSuccessfully] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
-  const [showMenu, setShowMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [memberCount, setMemberCount] = useState(0);
   const [messageStatus, setMessageStatus] = useState({});
+  const [roomId, setRoomId] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -28,25 +28,57 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
 
   useEffect(() => {
     if (joinedSuccessfully && clubId) {
+      initChatRoom();
+    }
+  }, [joinedSuccessfully, clubId]);
+
+  useEffect(() => {
+    if (roomId && joinedSuccessfully) {
       loadMessages();
       loadMemberCount();
     }
-  }, [joinedSuccessfully, clubId]);
+  }, [roomId, joinedSuccessfully]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    if (roomId && messages.length > 0) {
+      chatService.markMessagesAsRead(roomId, CURRENT_USER_ID);
+    }
+  }, [roomId, messages.length]);
+
+  const initChatRoom = async () => {
+    try {
+      const { data, error } = await chatService.createPublicRoom(clubId);
+      if (data) {
+        setRoomId(data.id);
+      }
+    } catch (error) {
+      console.error('初始化聊天室失败:', error);
+    }
+  };
+
   const loadMessages = async () => {
     try {
-      const result = await chatService.getClubMessages(clubId);
-      if (result.data) {
-        const formattedMessages = result.data.map(msg => ({
-          ...msg,
-          is_own: msg.user_id === CURRENT_USER_ID
-        }));
-        setMessages(formattedMessages);
-      }
+      const { data } = await chatService.getMessages(roomId);
+      const formattedMessages = data.map(msg => ({
+        ...msg,
+        is_own: msg.sender_id === CURRENT_USER_ID
+      }));
+      setMessages(formattedMessages);
+
+      const subscription = chatService.subscribeToRoom(roomId, (payload) => {
+        setMessages(prev => [...prev, {
+          ...payload.new,
+          is_own: payload.new.sender_id === CURRENT_USER_ID
+        }]);
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
     } catch (error) {
       console.error('加载消息失败:', error);
     }
@@ -69,38 +101,36 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
   };
 
   const handleSendMessage = async () => {
-    if (!message.trim() || isSending) return;
-    
+    if (!message.trim() || isSending || !roomId) return;
+
     setIsSending(true);
     setError(null);
 
     const tempId = Date.now().toString();
     const newMessage = {
       id: tempId,
-      club_id: clubId,
-      user_id: CURRENT_USER_ID,
+      chat_room_id: roomId,
+      sender_id: CURRENT_USER_ID,
       content: message.trim(),
       created_at: new Date().toISOString(),
       is_own: true,
       status: 'sending'
     };
-    
+
     setMessages(prev => [...prev, newMessage]);
     setMessageStatus(prev => ({ ...prev, [tempId]: 'sending' }));
     setMessage('');
 
     try {
-      const result = await chatService.sendMessage(clubId, CURRENT_USER_ID, message.trim());
-      
-      if (result.data) {
-        setMessages(prev => prev.map(msg => 
-          msg.id === tempId ? { ...msg, id: result.data.id, status: 'sent' } : msg
+      const { data, error: sendError } = await chatService.sendMessage(roomId, CURRENT_USER_ID, message.trim());
+
+      if (data) {
+        setMessages(prev => prev.map(msg =>
+          msg.id === tempId ? { ...msg, id: data.id, status: 'sent' } : msg
         ));
         setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
-      } else if (result.tableMissing) {
-        setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
-      } else {
-        setError(result.error?.message || '发送失败，请重试');
+      } else if (sendError) {
+        setError(sendError.message || '发送失败，请重试');
         setMessageStatus(prev => ({ ...prev, [tempId]: 'failed' }));
       }
     } catch (error) {
@@ -158,48 +188,7 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
             </div>
           </div>
 
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-              aria-label="菜单"
-            >
-              <svg className="w-6 h-6 text-gray-300" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            {showMenu && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowMenu(false)}
-                />
-                <div className="absolute right-0 top-full mt-2 w-64 bg-dark-200/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-xl z-50 overflow-hidden">
-                  <div className="p-4 border-b border-white/10">
-                    <h3 className="text-white font-bold mb-2">俱乐部信息</h3>
-                    <div className="flex items-center gap-2 text-gray-300">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                      <span>成员数量：<span className="text-primary-700 font-bold">{memberCount}</span> 人</span>
-                    </div>
-                  </div>
-                  <div className="p-2">
-                    <button 
-                      onClick={() => setShowMenu(false)}
-                      className="w-full text-left px-4 py-2 text-gray-300 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      关闭
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          <div className="w-16" />
         </div>
       </div>
 
@@ -211,7 +200,7 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
               <div className="absolute inset-0 w-full h-full border-4 border-primary-700/30 border-t-transparent rounded-full animate-spin" style={{ animationDelay: '0.2s' }} />
             </div>
             <p className="text-white text-lg mb-2">正在加入俱乐部...</p>
-            <p className="text-gray-400 text-sm">即将进入 {clubName} 的聊天界面</p>
+            <p className="text-gray-400 text-sm">即将进入 {clubName} 的公共大厅</p>
           </div>
         )}
 
@@ -224,7 +213,7 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                 </svg>
               </div>
               <h2 className="text-xl font-bold text-white mb-2">🎉 加入成功！</h2>
-              <p className="text-gray-300">您已成功加入 {clubName}，可以开始聊天了</p>
+              <p className="text-gray-300">您已成功加入 {clubName} 公共大厅，可以开始聊天了</p>
             </div>
 
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -233,18 +222,20 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                   <span className="text-white font-bold">🤖</span>
                 </div>
                 <div className="bg-gradient-to-r from-gray-700 to-gray-600 rounded-xl rounded-tl-none p-3 max-w-[80%]">
-                  <p className="text-gray-200 text-sm">欢迎加入 {clubName}！如有任何问题，请随时询问。</p>
+                  <p className="text-gray-200 text-sm">欢迎加入 {clubName} 公共大厅！如有任何问题，请随时询问。</p>
                 </div>
               </div>
 
               {messages.map((msg) => (
-                <div 
-                  key={msg.id} 
+                <div
+                  key={msg.id}
                   className={`flex gap-3 mb-4 ${msg.is_own ? 'flex-row-reverse' : ''}`}
                 >
                   {!msg.is_own && (
                     <div className="w-10 h-10 rounded-full bg-gradient-to-r from-gray-500 to-gray-600 flex items-center justify-center flex-shrink-0">
-                      <span className="text-white font-bold">👤</span>
+                      <span className="text-white font-bold">
+                        {msg.sender?.username?.charAt(0) || '👤'}
+                      </span>
                     </div>
                   )}
                   <div className={`max-w-[80%] p-3 rounded-2xl ${
@@ -252,9 +243,10 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                       ? 'bg-gradient-to-r from-primary-600 to-primary-700 rounded-br-sm'
                       : 'bg-white/10 rounded-bl-sm'
                   }`}>
-                    <p className={`text-sm ${
-                      msg.is_own ? 'text-white' : 'text-gray-200'
-                    }`}>
+                    {!msg.is_own && msg.sender && (
+                      <p className="text-xs text-gray-400 mb-1">{msg.sender.username}</p>
+                    )}
+                    <p className={`text-sm ${msg.is_own ? 'text-white' : 'text-gray-200'}`}>
                       {msg.content}
                     </p>
                     <div className={`flex items-center gap-1 mt-1 ${msg.is_own ? 'justify-end' : 'justify-start'}`}>
@@ -266,6 +258,7 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                           {messageStatus[msg.id] === 'sending' && '⏳'}
                           {messageStatus[msg.id] === 'sent' && '✓'}
                           {messageStatus[msg.id] === 'failed' && '✗'}
+                          {!messageStatus[msg.id] && msg.status === 'read' && '✓✓'}
                         </span>
                       )}
                     </div>
@@ -299,13 +292,13 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                 ))}
               </div>
             )}
-            
+
             {error && (
               <div className="mb-2 p-2 bg-red-500/20 text-red-400 rounded-lg text-sm text-center">
                 {error}
               </div>
             )}
-            
+
             <div className="flex items-end gap-3">
               <button
                 onClick={() => setShowEmoji(!showEmoji)}
@@ -317,31 +310,39 @@ export default function ChatInterface({ clubId, clubName, onBack }) {
                   <path d="M8 15s1.5-2 4-2 4 2 4 2M9 9h.01M15 9h.01" />
                 </svg>
               </button>
-              
+
               <div className="flex-1 relative">
                 <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="输入消息..."
+                  placeholder="在公共大厅发送消息..."
                   disabled={isSending}
                   rows={1}
                   className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary-700/50 transition-all disabled:opacity-50 resize-none"
                   style={{ minHeight: '44px', maxHeight: '120px' }}
                 />
               </div>
-              
-              <Button 
-                onClick={handleSendMessage} 
+
+              <button
+                onClick={handleSendMessage}
                 disabled={!message.trim() || isSending}
-                loading={isSending}
-                size="md"
+                className={`p-3 rounded-xl transition-all ${
+                  message.trim() && !isSending
+                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:shadow-lg hover:shadow-primary-700/30'
+                    : 'bg-white/5 text-gray-400 cursor-not-allowed'
+                }`}
+                aria-label="发送"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-              </Button>
+                {isSending ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
         </div>

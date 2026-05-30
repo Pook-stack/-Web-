@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Card, EmptyState } from './ui'
-import { notificationService } from '../services/notificationService'
+import { notificationService } from '../services/localDataService'
 
 export default function Notifications({ onBack }) {
   const [notifications, setNotifications] = useState([])

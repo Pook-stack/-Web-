@@ -1,17 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card, Button, Avatar, Skeleton, ImageUploader } from './ui';
-import { adminManagementService } from '../services/adminManagementService';
-import { memberService } from '../services/supabase';
+import { Card, Button, Avatar, Skeleton, ImageUploader, Input, Textarea } from './ui';
+import StarRating from './StarRating';
+import { adminManagementService, memberService } from '../services/localDataService'
+import { getUserId } from '../services/userIdentity'
 
-const CURRENT_USER_ID = 'test_user_001';
+const CURRENT_USER_ID = getUserId()
 
-export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onClubDeleted }) {
+export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onClubDeleted, onEnterChat }) {
   const [displayedMemberCount, setDisplayedMemberCount] = useState(8);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [clubDetails, setClubDetails] = useState(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
+  const [isMember, setIsMember] = useState(false);
   const [members, setMembers] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
@@ -21,13 +23,24 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
   const [selectedMemberForAdmin, setSelectedMemberForAdmin] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [realMemberCount, setRealMemberCount] = useState(0);
+  
+  const [isEditingOverview, setIsEditingOverview] = useState(false);
+  const [editForm, setEditForm] = useState({
+    activityFrequency: '',
+    priceRange: '',
+    memberRequirements: '',
+    contact: '',
+    specialServices: '',
+    description: '',
+    mission: '',
+  });
 
   useEffect(() => {
     const loadClubDetails = async () => {
       setIsLoaded(false);
 
       try {
-        const { clubService } = await import('../services/supabase');
+        const { clubService } = await import('../services/localDataService')
         const result = await clubService.getClubById(clubId);
 
         if (result.data) {
@@ -48,17 +61,26 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
             memberRequirements: result.data.member_requirement || '未设置',
             foundedYear: result.data.founded_year || '未设置',
             isOfficial: result.data.is_official || false,
+            createdAt: result.data.created_at,
           });
           setNewName(result.data.name);
+          
+          setEditForm({
+            activityFrequency: result.data.activity_frequency || '',
+            priceRange: result.data.price_range || '',
+            memberRequirements: result.data.member_requirement || '',
+            contact: result.data.contact || '',
+            specialServices: Array.isArray(result.data.special_services) ? result.data.special_services.join(', ') : '',
+            description: result.data.description || '',
+            mission: result.data.detailed_description || result.data.description || '',
+          });
         }
 
-        // 获取真实成员数量
         const countResult = await adminManagementService.getRealMemberCount(clubId);
         if (countResult.success) {
           setRealMemberCount(countResult.count);
         }
 
-        // 获取成员列表
         const membersResult = await memberService.getClubMembers(clubId);
         if (membersResult.data) {
           setMembers(membersResult.data.map(m => ({
@@ -71,19 +93,19 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
           })));
         }
 
-        // 获取管理员列表
+        const isMemberResult = await memberService.isClubMember(clubId, CURRENT_USER_ID);
+        setIsMember(isMemberResult.data);
+
         const adminsResult = await adminManagementService.getClubAdmins(clubId);
         if (adminsResult.success) {
           setAdmins(adminsResult.data);
         }
 
-        // 检查权限
         const adminResult = await adminManagementService.isClubAdmin(clubId, CURRENT_USER_ID);
         const creatorResult = await adminManagementService.isClubCreator(clubId, CURRENT_USER_ID);
         setIsAdmin(adminResult.success && adminResult.isAdmin);
         setIsCreator(creatorResult.success && creatorResult.isCreator);
 
-        // 获取审计日志
         const logResult = await adminManagementService.getMemberAuditLog(clubId);
         if (logResult.success) {
           setAuditLog(logResult.data);
@@ -111,6 +133,13 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
     onQuickJoin(clubDetails.id);
   };
 
+  const handleEnterChat = () => {
+    if (!clubDetails) return;
+    if (onEnterChat) {
+      onEnterChat(clubDetails.id, clubDetails.name);
+    }
+  };
+
   const loadMoreMembers = () => {
     if (isLoadingMembers) return;
     setIsLoadingMembers(true);
@@ -133,6 +162,45 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
       alert('俱乐部名称已更新！');
     } else {
       alert('更新失败：' + result.error);
+    }
+  };
+
+  const handleSaveOverview = async () => {
+    try {
+      const specialServicesArray = editForm.specialServices
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      const updateData = {
+        activity_frequency: editForm.activityFrequency || null,
+        price_range: editForm.priceRange || null,
+        member_requirement: editForm.memberRequirements || null,
+        contact: editForm.contact || null,
+        special_services: specialServicesArray,
+        description: editForm.description || null,
+        detailed_description: editForm.mission || null,
+      };
+
+      const result = await adminManagementService.updateClub(clubId, updateData);
+      if (result.success) {
+        setClubDetails(prev => ({
+          ...prev,
+          activityFrequency: editForm.activityFrequency || '未设置',
+          priceRange: editForm.priceRange || '未设置',
+          memberRequirements: editForm.memberRequirements || '未设置',
+          contact: editForm.contact || '暂无联系方式',
+          specialServices: specialServicesArray,
+          description: editForm.description || '暂无描述',
+          mission: editForm.mission || '暂无宗旨',
+        }));
+        setIsEditingOverview(false);
+        alert('俱乐部信息已更新！');
+      } else {
+        alert('更新失败：' + result.error);
+      }
+    } catch (error) {
+      alert('更新失败：' + error.message);
     }
   };
 
@@ -267,18 +335,29 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
         返回
       </button>
 
-      {/* 管理按钮 */}
       {(isAdmin || isCreator) && (
-        <button
-          onClick={() => setActiveTab('admin')}
-          className="fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-primary-700/80 backdrop-blur-xl border border-primary-700/30 rounded-full text-white hover:bg-primary-700 transition-all"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-          管理
-        </button>
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+          <button
+            onClick={() => setIsEditingOverview(!isEditingOverview)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600/80 backdrop-blur-xl border border-blue-600/30 rounded-full text-white hover:bg-blue-600 transition-all"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            {isEditingOverview ? '取消编辑' : '编辑'}
+          </button>
+          <button
+            onClick={() => setActiveTab('admin')}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-700/80 backdrop-blur-xl border border-primary-700/30 rounded-full text-white hover:bg-primary-700 transition-all"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            管理
+          </button>
+        </div>
       )}
 
       <div className="relative h-[56.25vw] max-h-80 overflow-hidden">
@@ -344,8 +423,8 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
               <span className="text-xl">📅</span>
               <div>
                 <div className="text-lg font-bold text-primary-700">
-                  {clubDetails.created_at ? 
-                    new Date(clubDetails.created_at).toLocaleDateString('zh-CN', {
+                  {clubDetails.createdAt ? 
+                    new Date(clubDetails.createdAt).toLocaleDateString('zh-CN', {
                       year: 'numeric',
                       month: '2-digit',
                       day: '2-digit'
@@ -359,7 +438,9 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
             <div className="flex items-center gap-1.5">
               <span className="text-xl">⭐</span>
               <div>
-                <div className="text-lg font-bold text-primary-700">{clubDetails.rating}</div>
+                <div className="flex items-center">
+                  <StarRating rating={clubDetails.rating} size="md" />
+                </div>
                 <div className="text-xs text-gray-400">评分</div>
               </div>
             </div>
@@ -367,7 +448,6 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
         </div>
       </div>
 
-      {/* 标签页 */}
       <div className="max-w-3xl mx-auto px-4">
         <div className="flex gap-2 p-1 bg-dark-200/50 rounded-xl mt-4">
           {[
@@ -394,35 +474,150 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
         {activeTab === 'overview' && (
           <>
             <Card>
-              <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <span>🏛️</span> 俱乐部简介
-              </h2>
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm text-gray-400 mb-1">宗旨</div>
-                  <p className="text-white">{clubDetails.mission}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm text-gray-400 mb-1">活动频率</div>
-                    <div className="text-white font-medium">{clubDetails.activityFrequency}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-400 mb-1">服务价格</div>
-                    <div className="text-white font-medium">{clubDetails.priceRange}</div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm text-gray-400 mb-1">成员要求</div>
-                    <div className="text-white font-medium">{clubDetails.memberRequirements}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-400 mb-1">联系方式</div>
-                    <div className="text-white font-medium">{clubDetails.contact}</div>
-                  </div>
-                </div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>🏛️</span> 俱乐部信息
+                </h2>
+                {(isAdmin || isCreator) && !isEditingOverview && (
+                  <Button size="sm" onClick={() => setIsEditingOverview(true)}>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    编辑
+                  </Button>
+                )}
               </div>
+              
+              {isEditingOverview ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">活动频率</label>
+                      <Input
+                        value={editForm.activityFrequency}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, activityFrequency: e.target.value }))}
+                        placeholder="例如：每周五晚"
+                        className="bg-white/5 border-white/10"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">服务价格</label>
+                      <Input
+                        value={editForm.priceRange}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, priceRange: e.target.value }))}
+                        placeholder="例如：免费/小时"
+                        className="bg-white/5 border-white/10"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">成员要求</label>
+                      <Input
+                        value={editForm.memberRequirements}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, memberRequirements: e.target.value }))}
+                        placeholder="例如：段位要求"
+                        className="bg-white/5 border-white/10"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">联系方式</label>
+                      <Input
+                        value={editForm.contact}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, contact: e.target.value }))}
+                        placeholder="例如：QQ群号"
+                        className="bg-white/5 border-white/10"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">特色服务</label>
+                    <Input
+                      value={editForm.specialServices}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, specialServices: e.target.value }))}
+                      placeholder="多个服务用逗号分隔"
+                      className="bg-white/5 border-white/10"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">俱乐部宗旨</label>
+                    <Textarea
+                      value={editForm.mission}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, mission: e.target.value }))}
+                      placeholder="描述俱乐部的宗旨和目标"
+                      rows={3}
+                      className="bg-white/5 border-white/10"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">详细介绍</label>
+                    <Textarea
+                      value={editForm.description}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="详细介绍俱乐部"
+                      rows={4}
+                      className="bg-white/5 border-white/10"
+                    />
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <Button variant="secondary" onClick={() => setIsEditingOverview(false)}>
+                      取消
+                    </Button>
+                    <Button onClick={handleSaveOverview}>
+                      保存修改
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white/5 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-primary-700">📅</span>
+                        <span className="text-sm text-gray-400">活动频率</span>
+                      </div>
+                      <div className="text-white font-medium">{clubDetails.activityFrequency}</div>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-primary-700">💰</span>
+                        <span className="text-sm text-gray-400">服务价格</span>
+                      </div>
+                      <div className="text-white font-medium">{clubDetails.priceRange}</div>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-primary-700">📋</span>
+                        <span className="text-sm text-gray-400">成员要求</span>
+                      </div>
+                      <div className="text-white font-medium">{clubDetails.memberRequirements}</div>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-primary-700">📞</span>
+                        <span className="text-sm text-gray-400">联系方式</span>
+                      </div>
+                      <div className="text-white font-medium">{clubDetails.contact}</div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h3 className="text-sm text-gray-400 mb-2 flex items-center gap-2">
+                      <span>🎯</span> 特色服务
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.isArray(clubDetails.specialServices) && clubDetails.specialServices.length > 0 ? clubDetails.specialServices.map((service, index) => (
+                        <span key={index} className="px-4 py-2 bg-gradient-to-r from-primary-600/20 to-primary-700/20 border border-primary-700/30 rounded-full text-primary-700 font-medium">
+                          {service}
+                        </span>
+                      )) : (
+                        <span className="text-gray-400 text-sm">暂无特色服务</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card>
@@ -430,19 +625,6 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                 <span>📝</span> 详细介绍
               </h2>
               <p className="text-gray-300 leading-relaxed">{clubDetails.description}</p>
-            </Card>
-
-            <Card>
-              <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <span>🎯</span> 特色服务
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {clubDetails.specialServices?.map((service, index) => (
-                  <span key={index} className="px-4 py-2 bg-gradient-to-r from-primary-600/20 to-primary-700/20 border border-primary-700/30 rounded-full text-primary-700 font-medium">
-                    {service}
-                  </span>
-                ))}
-              </div>
             </Card>
           </>
         )}
@@ -457,14 +639,16 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
             </div>
 
             <div className="grid grid-cols-4 md:grid-cols-5 gap-4">
-              {displayedMembers.map((member, index) => {
+              {Array.isArray(displayedMembers) && displayedMembers.length > 0 ? displayedMembers.map((member, index) => {
+                if (!member || !member.userId) return null;
+                
                 const isMemberAdmin = admins.some(a => a.user_id === member.userId);
                 const isMemberCreator = admins.some(a => a.user_id === member.userId && a.role === 'creator');
                 
                 return (
                   <div key={member.userId} className="flex flex-col items-center gap-2 relative" style={{ animationDelay: `${index * 0.05}s` }}>
                     <Avatar
-                      name={member.nickname}
+                      name={member.nickname || member.userId}
                       image={member.avatar}
                       size="lg"
                       className={`border-2 ${member.isOnline ? 'border-green-500' : 'border-primary-700/30'}`}
@@ -473,7 +657,7 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                       <div className="absolute bottom-1 right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-300" />
                     )}
                     <span className="text-sm text-white font-medium truncate max-w-[80px] text-center">
-                      {member.nickname.length > 8 ? member.nickname.slice(0, 8) + '...' : member.nickname}
+                      {(member.nickname || member.userId) && (member.nickname || member.userId).length > 8 ? (member.nickname || member.userId).slice(0, 8) + '...' : (member.nickname || member.userId)}
                     </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       isMemberCreator 
@@ -482,11 +666,15 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                           ? 'bg-purple-500/20 text-purple-400' 
                           : 'bg-primary-700/20 text-primary-700'
                     }`}>
-                      {isMemberCreator ? '创建者' : isMemberAdmin ? '管理员' : member.role}
+                      {isMemberCreator ? '创建者' : isMemberAdmin ? '管理员' : (member.role || '成员')}
                     </span>
                   </div>
                 );
-              })}
+              }) : (
+                <div className="col-span-full text-center py-8 text-gray-400">
+                  暂无成员数据
+                </div>
+              )}
             </div>
 
             {hasMoreMembers && (
@@ -536,7 +724,9 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                   </div>
 
                   <div className="space-y-3">
-                    {admins.map((admin) => {
+                    {Array.isArray(admins) && admins.length > 0 ? admins.map((admin) => {
+                      if (!admin || !admin.user_id) return null;
+                      
                       const member = members.find(m => m.userId === admin.user_id);
                       return (
                         <div key={admin.user_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
@@ -560,7 +750,11 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                           )}
                         </div>
                       );
-                    })}
+                    }) : (
+                      <div className="text-center py-4 text-gray-400">
+                        暂无管理员数据
+                      </div>
+                    )}
                   </div>
                 </Card>
 
@@ -569,19 +763,22 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
                     <span>📊</span> 成员变更日志
                   </h2>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {auditLog.length > 0 ? (
-                      auditLog.map((log) => (
-                        <div key={log.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg text-sm">
-                          <div>
-                            <span className="text-primary-700 font-medium">{log.user_id}</span>
-                            <span className="text-gray-400 mx-2">·</span>
-                            <span className="text-white">{getActionText(log.action)}</span>
+                    {Array.isArray(auditLog) && auditLog.length > 0 ? (
+                      auditLog.map((log) => {
+                        if (!log) return null;
+                        return (
+                          <div key={log.id || Math.random()} className="flex items-center justify-between p-2 bg-white/5 rounded-lg text-sm">
+                            <div>
+                              <span className="text-primary-700 font-medium">{log.user_id || '未知用户'}</span>
+                              <span className="text-gray-400 mx-2">·</span>
+                              <span className="text-white">{getActionText(log.action)}</span>
+                            </div>
+                            <span className="text-gray-500 text-xs">
+                              {log.created_at ? new Date(log.created_at).toLocaleString('zh-CN') : ''}
+                            </span>
                           </div>
-                          <span className="text-gray-500 text-xs">
-                            {new Date(log.created_at).toLocaleString('zh-CN')}
-                          </span>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="text-center py-4 text-gray-400">暂无变更记录</div>
                     )}
@@ -624,23 +821,40 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
           <div>
             <div className="text-primary-700 font-bold">{realMemberCount} 人已加入</div>
-            <div className="text-sm text-gray-400">点击加入俱乐部</div>
+            <div className="text-sm text-gray-400">
+              {isMember ? '点击进入聊天' : '点击加入俱乐部'}
+            </div>
           </div>
-          <Button
-            onClick={handleJoin}
-            disabled={isApplied(clubDetails.id)}
-            size="lg"
-            className={isApplied(clubDetails.id) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
-          >
-            <span className="flex items-center gap-2">
-              <span className="text-xl">{isApplied(clubDetails.id) ? '✓' : '✚'}</span>
-              <span>{isApplied(clubDetails.id) ? '已申请' : '申请加入'}</span>
-            </span>
-          </Button>
+          <div className="flex items-center gap-3">
+            {isMember && onEnterChat ? (
+              <Button
+                onClick={handleEnterChat}
+                size="lg"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <span>进入聊天</span>
+                </span>
+              </Button>
+            ) : (
+              <Button
+                onClick={handleJoin}
+                disabled={isApplied(clubDetails.id)}
+                size="lg"
+                className={isApplied(clubDetails.id) ? 'bg-gray-600/40 text-gray-400 cursor-not-allowed hover:shadow-none' : ''}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-xl">{isApplied(clubDetails.id) ? '⏳' : '✚'}</span>
+                  <span>{isApplied(clubDetails.id) ? '审核中' : '申请加入'}</span>
+                </span>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 任命管理员弹窗 */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-dark-200 rounded-2xl max-w-md w-full p-6">
@@ -648,20 +862,27 @@ export default function ClubDetail({ clubId, onBack, onQuickJoin, isApplied, onC
             <p className="text-gray-400 mb-4">选择一位成员任命为管理员：</p>
             
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {members.filter(m => !admins.some(a => a.user_id === m.userId)).map((member) => (
-                <button
-                  key={member.userId}
-                  onClick={() => setSelectedMemberForAdmin(member)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
-                    selectedMemberForAdmin?.userId === member.userId
-                      ? 'bg-primary-700/20 border border-primary-700'
-                      : 'bg-white/5 hover:bg-white/10'
-                  }`}
-                >
-                  <Avatar name={member.nickname} size="md" />
-                  <span className="text-white">{member.nickname}</span>
-                </button>
-              ))}
+              {Array.isArray(members) && members.length > 0 ? members.filter(m => !admins.some(a => a.user_id === m.userId)).map((member) => {
+                if (!member || !member.userId) return null;
+                return (
+                  <button
+                    key={member.userId}
+                    onClick={() => setSelectedMemberForAdmin(member)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+                      selectedMemberForAdmin?.userId === member.userId
+                        ? 'bg-primary-700/20 border border-primary-700'
+                        : 'bg-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    <Avatar name={member.nickname || member.userId} size="md" />
+                    <span className="text-white">{member.nickname || member.userId}</span>
+                  </button>
+                );
+              }) : (
+                <div className="text-center py-4 text-gray-400">
+                  暂无可用成员
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Card, Avatar, Button, StatusTag } from './ui'
-import { notificationService } from '../services/notificationService'
+import { notificationService } from '../services/localDataService'
 
 const mockUserData = {
   nickname: '游戏玩家',
@@ -11,12 +11,11 @@ const mockUserData = {
   totalApplications: 5,
 }
 
-export default function MyProfile({ onBack, onSelectClub, clubsData = [], appliedClubs = [], onNavigateToCreate, onNavigateToNotifications }) {
+export default function MyProfile({ onBack, onSelectClub, onEnterChat, clubsData = [], appliedClubs = [], onNavigateToCreate, onNavigateToNotifications }) {
   const [userData] = useState(mockUserData)
   const [activeTab, setActiveTab] = useState('clubs')
   const [myClubs, setMyClubs] = useState([])
   const [myApplications, setMyApplications] = useState([])
-  // 通知数量状态 - 此处已移除假数据，等待接入Supabase真实通知
   const [notificationCount, setNotificationCount] = useState(0)
 
   useEffect(() => {
@@ -38,7 +37,6 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
     setMyApplications(applications)
   }, [clubsData, appliedClubs])
 
-  // 获取真实通知数量 - 此处已移除假数据，等待接入Supabase真实通知
   useEffect(() => {
     const fetchNotificationCount = async () => {
       try {
@@ -57,6 +55,12 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
 
     fetchNotificationCount()
   }, [])
+
+  const handleEnterChat = (club) => {
+    if (onEnterChat) {
+      onEnterChat(club.id, club.name)
+    }
+  }
 
   const tabs = [
     { key: 'clubs', label: '我的俱乐部', count: myClubs.length },
@@ -150,7 +154,6 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
                   <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
-                {/* 通知数量 - 此处已移除假数据，等待接入Supabase真实通知 */}
                 {notificationCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
                     {notificationCount > 9 ? '9+' : notificationCount}
@@ -190,7 +193,6 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
                 {myClubs.map((club) => (
                   <Card
                     key={club.id}
-                    onClick={() => onSelectClub && onSelectClub(club.id)}
                     className="cursor-pointer group"
                   >
                     <div className="flex items-center gap-4">
@@ -214,9 +216,24 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
 
                       <div className="flex items-center gap-2">
                         <StatusTag status="approved" />
-                        <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M9 18l6-6-6-6" />
-                        </svg>
+                        <button
+                          onClick={() => handleEnterChat(club)}
+                          className="p-2 bg-primary-700/20 text-primary-700 hover:bg-primary-700/30 rounded-lg transition-colors"
+                          title="进入聊天"
+                        >
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => onSelectClub && onSelectClub(club.id)}
+                          className="p-2 text-gray-400 hover:text-white transition-colors"
+                          title="查看详情"
+                        >
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M9 18l6-6-6-6" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   </Card>
@@ -301,7 +318,7 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
                   </Button>
                 </div>
                 
-                <div className="flex items-center justify-between py-3 border-b border-white/10">
+                <div className="flex items-center justify-between py-3">
                   <div>
                     <div className="text-sm text-gray-400">邮箱</div>
                     <div className="text-white mt-1">{userData.email}</div>
@@ -310,40 +327,36 @@ export default function MyProfile({ onBack, onSelectClub, clubsData = [], applie
                     修改
                   </Button>
                 </div>
-                
-                <div className="flex items-center justify-between py-3">
-                  <div>
-                    <div className="text-sm text-gray-400">加入时间</div>
-                    <div className="text-white mt-1">{userData.joinDate}</div>
-                  </div>
-                </div>
               </div>
             </Card>
 
             <Card>
-              <h2 className="text-lg font-bold text-white mb-4">其他设置</h2>
+              <h2 className="text-lg font-bold text-white mb-4">应用设置</h2>
               
-              <div className="space-y-3">
-                <button className="w-full flex items-center justify-between py-3 hover:bg-white/5 rounded-lg px-2 transition-colors">
-                  <span className="text-white">通知设置</span>
-                  <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between py-3 border-b border-white/10">
+                  <div>
+                    <div className="text-white">消息通知</div>
+                    <div className="text-sm text-gray-400">接收俱乐部消息通知</div>
+                  </div>
+                  <div className="relative inline-block w-12 h-6">
+                    <input type="checkbox" className="peer sr-only" defaultChecked />
+                    <div className="w-12 h-6 bg-gray-600 rounded-full peer peer-checked:bg-primary-700 cursor-pointer transition-colors"></div>
+                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-6"></div>
+                  </div>
+                </div>
                 
-                <button className="w-full flex items-center justify-between py-3 hover:bg-white/5 rounded-lg px-2 transition-colors">
-                  <span className="text-white">隐私设置</span>
-                  <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </button>
-                
-                <button className="w-full flex items-center justify-between py-3 hover:bg-white/5 rounded-lg px-2 transition-colors">
-                  <span className="text-red-400">退出登录</span>
-                  <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </button>
+                <div className="flex items-center justify-between py-3">
+                  <div>
+                    <div className="text-white">深色模式</div>
+                    <div className="text-sm text-gray-400">使用深色主题</div>
+                  </div>
+                  <div className="relative inline-block w-12 h-6">
+                    <input type="checkbox" className="peer sr-only" defaultChecked />
+                    <div className="w-12 h-6 bg-gray-600 rounded-full peer peer-checked:bg-primary-700 cursor-pointer transition-colors"></div>
+                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-6"></div>
+                  </div>
+                </div>
               </div>
             </Card>
           </div>

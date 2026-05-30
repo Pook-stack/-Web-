@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Card, Button, Avatar, StatusTag } from './ui'
-import { applicationService } from '../services/supabase'
+import { applicationService } from '../services/localDataService'
 
 export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, onRejectClub, onSelectClub }) {
   const [activeTab, setActiveTab] = useState('pending')
@@ -43,13 +43,19 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
     }
   }
 
+  const [processingId, setProcessingId] = useState(null)
+
   const handleApproveApplication = async (applicationId, clubName) => {
+    if (processingId === applicationId) return
+    setProcessingId(applicationId)
+    
     try {
       if (window.confirm(`确定要批准该用户加入「${clubName}」吗？`)) {
         const result = await applicationService.processApplication(applicationId, 'approved')
         if (result && result.data) {
+          const updatedList = pendingApplications.filter(app => app.id !== applicationId)
+          setPendingApplications(updatedList)
           alert('申请已批准，用户已加入俱乐部')
-          await loadPendingApplications()
         } else {
           alert(`操作失败: ${result?.error?.message || '未知错误'}`)
         }
@@ -57,16 +63,22 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
     } catch (error) {
       console.error('批准申请失败:', error)
       alert(`操作失败: ${error.message || '未知错误'}`)
+    } finally {
+      setProcessingId(null)
     }
   }
 
   const handleRejectApplication = async (applicationId, clubName) => {
+    if (processingId === applicationId) return
+    setProcessingId(applicationId)
+    
     try {
       if (window.confirm(`确定要拒绝该用户加入「${clubName}」的申请吗？`)) {
         const result = await applicationService.processApplication(applicationId, 'rejected')
         if (result && result.data) {
+          const updatedList = pendingApplications.filter(app => app.id !== applicationId)
+          setPendingApplications(updatedList)
           alert('申请已拒绝')
-          await loadPendingApplications()
         } else {
           alert(`操作失败: ${result?.error?.message || '未知错误'}`)
         }
@@ -74,6 +86,8 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
     } catch (error) {
       console.error('拒绝申请失败:', error)
       alert(`操作失败: ${error.message || '未知错误'}`)
+    } finally {
+      setProcessingId(null)
     }
   }
 
@@ -126,7 +140,7 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
           </button>
           
           <h1 className="text-2xl font-bold text-white mb-4">管理后台</h1>
-          
+
           <div className="flex gap-2 overflow-x-auto scrollbar-hide">
             {tabs.map(tab => (
               <button
@@ -189,21 +203,43 @@ export default function AdminDashboard({ onBack, clubsData = [], onApproveClub, 
                   <div className="absolute top-3 right-3 flex gap-2">
                     <button
                       onClick={() => handleApproveApplication(application.id, application.clubs?.name || '俱乐部')}
-                      className="p-2 bg-green-500/20 text-green-500 rounded-lg hover:bg-green-500/30 transition-colors"
+                      disabled={processingId === application.id}
+                      className={`p-2 rounded-lg transition-colors ${
+                        processingId === application.id
+                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+                          : 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
+                      }`}
                       title="批准"
                     >
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
+                      {processingId === application.id ? (
+                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
                     </button>
                     <button
                       onClick={() => handleRejectApplication(application.id, application.clubs?.name || '俱乐部')}
-                      className="p-2 bg-red-500/20 text-red-500 rounded-lg hover:bg-red-500/30 transition-colors"
+                      disabled={processingId === application.id}
+                      className={`p-2 rounded-lg transition-colors ${
+                        processingId === application.id
+                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
+                      }`}
                       title="拒绝"
                     >
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M18 6L6 18M6 6l12 12" />
-                      </svg>
+                      {processingId === application.id ? (
+                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      )}
                     </button>
                   </div>
 

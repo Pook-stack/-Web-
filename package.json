@@ -8,9 +8,16 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "format": "prettier --write ."
+    "lint:fix": "eslint . --ext js,jsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "docker:build": "docker build -t companion-club .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "predeploy": "npm run build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@supabase/supabase-js": "^2.106.2",
     "clsx": "^2.1.1",
     "react": "^18.2.0",
